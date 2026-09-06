@@ -149,5 +149,8 @@ If the first returns rows, RLS is not enabled — re-run the schema.
 | Sign-in works, screens are empty | Function not deployed | `npx supabase functions deploy api` |
 | `/signin` 404s on refresh | SPA fallback missing | Confirm `netlify.toml` deployed |
 | `deadlock detected` running the schema | The app was querying during DDL | Close app tabs, re-run |
+| `cannot change name of view column` | An older `candidate_roster` view exists | Fixed in the script — it now drops the view first. Pull the latest `schema.sql` |
+| `column session_id does not exist` | v1 `attempts` table survived `create table if not exists` | Fixed — the script now adds the column explicitly |
+| `relation "public.accounts" does not exist` | Fresh install hitting a v1 cleanup statement | Fixed — that drop is now guarded by `to_regclass` |
 | Changed env vars did nothing | `VITE_*` is baked in at build time | Trigger a fresh deploy |
 | Bootstrap returns 409 | An admin already exists | Sign in, or reset via the dashboard |

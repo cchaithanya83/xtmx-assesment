@@ -141,6 +141,12 @@ create table if not exists public.attempts (
   created_at             timestamptz not null default now()
 );
 
+-- Upgrade path: `create table if not exists` above is a no-op when the v1
+-- table is already present, so new columns have to be added explicitly.
+alter table public.attempts
+  add column if not exists session_id uuid references public.assessment_sessions (id)
+  on delete set null;
+
 create index if not exists attempts_candidate_idx  on public.attempts (candidate_id);
 create index if not exists attempts_assignment_idx on public.attempts (task_id, assignment_id);
 create index if not exists attempts_completed_idx  on public.attempts (completed_at desc);
@@ -175,7 +181,11 @@ create table if not exists public.trainer_settings (
 -- Weighting mirrors the scoring engine: Task 1 average x 40% + Task 2 x 60%,
 -- taking each candidate's BEST attempt per assignment.
 -- ---------------------------------------------------------------------------
-create or replace view public.candidate_roster as
+-- CREATE OR REPLACE cannot change a view's column list, and schema v1 shipped a
+-- different one. Drop first so an upgrade succeeds.
+drop view if exists public.candidate_roster cascade;
+
+create view public.candidate_roster as
 with best as (
   select
     a.candidate_id,
@@ -249,15 +259,22 @@ alter table public.attempts            enable row level security;
 alter table public.certifications      enable row level security;
 alter table public.trainer_settings    enable row level security;
 
-alter table public.candidates          force row level security;
-alter table public.profiles            force row level security;
-alter table public.assessment_sessions force row level security;
-alter table public.attempts            force row level security;
-alter table public.certifications      force row level security;
-alter table public.trainer_settings    force row level security;
+-- FORCE ROW LEVEL SECURITY is deliberately NOT used. It would apply RLS to the
+-- table owner as well, which locks the Dashboard SQL Editor out of your own
+-- data without adding protection: `anon` and `authenticated` are already denied
+-- by RLS-with-no-policies, and the owner role is not reachable through
+-- PostgREST. The service_role used by the API bypasses RLS via its BYPASSRLS
+-- attribute either way.
 
 -- Remove the permissive policies from schema v1, if this is an upgrade.
-drop policy if exists accounts_standalone         on public.accounts;
+-- `drop policy if exists` still requires the table to exist, so the accounts
+-- one is guarded — on a fresh install there is nothing to drop.
+do $$ begin
+  if to_regclass('public.accounts') is not null then
+    execute 'drop policy if exists accounts_standalone on public.accounts';
+  end if;
+end $$;
+
 drop policy if exists candidates_standalone       on public.candidates;
 drop policy if exists attempts_standalone         on public.attempts;
 drop policy if exists certifications_standalone   on public.certifications;

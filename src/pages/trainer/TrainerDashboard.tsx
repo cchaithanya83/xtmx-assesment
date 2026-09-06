@@ -3,98 +3,110 @@ import { useNavigate } from 'react-router-dom'
 import {
   AlertTriangle,
   ArrowUpDown,
+  ChevronLeft,
+  ChevronRight,
   Download,
+  Loader2,
   Search,
   ShieldCheck,
   TrendingDown,
   UserCheck,
   Users,
 } from 'lucide-react'
-import type { CandidateStatus, RiskLevel } from '@/types'
-import { useAppStore, useRoster, useRosterKpis, type RosterRow } from '@/store/appStore'
-import { STATUS_LABEL } from '@/engine/certification'
-import { BATCHES } from '@/data/pools'
+import type { CandidateStatus, PerformanceLevel, RiskLevel } from '@/types'
+import { trainer, type RosterRow } from '@/api/client'
+import { useApi, useDebounced } from '@/hooks/useApi'
+import { classifyPerformance, classifyRisk, STATUS_LABEL } from '@/engine/certification'
+import { TOTAL_ASSIGNMENTS } from '@/data/tasks'
 import { ScoreDistributionChart } from '@/components/charts'
 import {
   Avatar,
   EmptyState,
   MetricCard,
   PageHeader,
+  PerformanceBadge,
   RiskBadge,
   StatusBadge,
 } from '@/components/shared'
 import { Badge, Button, Card, Input, Select } from '@/components/ui'
 import { cn, downloadBlob, round, toCsv } from '@/lib/utils'
 
-type SortKey = 'name' | 'score' | 'wpm' | 'accuracy' | 'attempts' | 'progress'
+const PAGE_SIZE = 25
 
 /**
  * Trainer / Admin overview.
  *
- * The roster is the operational surface: search, filter by batch/status/task/
- * risk, sort by any metric, drill into a candidate, and export the cohort.
+ * Every number on this page is computed in Postgres and paged over the API —
+ * the browser never receives the full attempt history of the cohort. Searching,
+ * filtering and sorting are query parameters, not array operations.
  */
 export default function TrainerDashboard() {
   const navigate = useNavigate()
-  const rows = useRoster()
-  const kpis = useRosterKpis(rows)
-  const settings = useAppStore((s) => s.settings)
 
-  const [query, setQuery] = React.useState('')
+  const [search, setSearch] = React.useState('')
   const [batch, setBatch] = React.useState('all')
   const [status, setStatus] = React.useState('all')
-  const [task, setTask] = React.useState('all')
   const [risk, setRisk] = React.useState('all')
-  const [sortKey, setSortKey] = React.useState<SortKey>('score')
-  const [sortDir, setSortDir] = React.useState<'asc' | 'desc'>('desc')
+  const [sort, setSort] = React.useState('score')
+  const [direction, setDirection] = React.useState<'asc' | 'desc'>('desc')
+  const [page, setPage] = React.useState(0)
 
-  const filtered = React.useMemo(() => {
-    const q = query.trim().toLowerCase()
-    const out = rows.filter((row) => {
-      const c = row.candidate
-      if (
-        q &&
-        !c.fullName.toLowerCase().includes(q) &&
-        !c.candidateId.toLowerCase().includes(q) &&
-        !c.email.toLowerCase().includes(q)
-      ) {
-        return false
-      }
-      if (batch !== 'all' && c.batch !== batch) return false
-      if (status !== 'all' && row.result.status !== status) return false
-      if (task !== 'all' && String(row.currentTaskId ?? '') !== task) return false
-      if (risk !== 'all' && row.result.risk !== risk) return false
-      return true
-    })
+  const debouncedSearch = useDebounced(search)
 
-    const dir = sortDir === 'asc' ? 1 : -1
-    return out.sort((a, b) => {
-      switch (sortKey) {
-        case 'name':
-          return dir * a.candidate.fullName.localeCompare(b.candidate.fullName)
-        case 'wpm':
-          return dir * (a.result.avgWpm - b.result.avgWpm)
-        case 'accuracy':
-          return dir * (a.result.avgAccuracy - b.result.avgAccuracy)
-        case 'attempts':
-          return dir * (a.result.totalAttempts - b.result.totalAttempts)
-        case 'progress':
-          return dir * (a.result.assignmentsPassed - b.result.assignmentsPassed)
-        case 'score':
-        default:
-          return dir * (a.result.finalScore - b.result.finalScore)
-      }
-    })
-  }, [rows, query, batch, status, task, risk, sortKey, sortDir])
+  React.useEffect(() => setPage(0), [debouncedSearch, batch, sort, direction])
 
-  const sort = (key: SortKey) => {
-    if (sortKey === key) {
-      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
-    } else {
-      setSortKey(key)
-      setSortDir('desc')
-    }
-  }
+  const roster = useApi(
+    () =>
+      trainer.roster({
+        search: debouncedSearch,
+        batch,
+        sort,
+        direction,
+        limit: PAGE_SIZE,
+        offset: page * PAGE_SIZE,
+      }),
+    [debouncedSearch, batch, sort, direction, page],
+  )
+
+  const batches = useApi(() => trainer.batches(), [])
+
+  const settings = roster.data?.settings
+  const rows = React.useMemo(() => roster.data?.rows ?? [], [roster.data])
+
+  /**
+   * Status and risk are presentation-level derivations of the aggregate the
+   * server returned, so they are applied here rather than in SQL. They are
+   * filters over the current page only — which is why the count is labelled
+   * "on this page".
+   */
+  const decorated = React.useMemo(
+    () =>
+      rows.map((row) => {
+        const certified = row.certified
+        const derivedStatus: CandidateStatus = certified
+          ? 'certified'
+          : row.totalAttempts === 0
+            ? 'not-started'
+            : row.assignmentsPassed === TOTAL_ASSIGNMENTS
+              ? 'not-certified'
+              : row.finalScore > 0 && row.finalScore < 70
+                ? 'danger'
+                : row.finalScore > 0 && row.finalScore < 78
+                  ? 'needs-coaching'
+                  : 'in-progress'
+        return {
+          row,
+          status: derivedStatus,
+          risk: classifyRisk(row.finalScore, certified, row.assignmentsPassed),
+          performance: classifyPerformance(row.finalScore, certified),
+        }
+      }),
+    [rows],
+  )
+
+  const visible = decorated.filter(
+    (d) => (status === 'all' || d.status === status) && (risk === 'all' || d.risk === risk),
+  )
 
   const distribution = React.useMemo(() => {
     const bands: { band: string; min: number; max: number; tone: 'emerald' | 'brand' | 'amber' | 'orange' | 'red' }[] = [
@@ -107,41 +119,67 @@ export default function TrainerDashboard() {
     return bands.map((b) => ({
       band: b.band,
       tone: b.tone,
-      count: rows.filter((r) => r.result.finalScore >= b.min && r.result.finalScore < b.max).length,
+      count: rows.filter((r) => r.finalScore >= b.min && r.finalScore < b.max).length,
     }))
   }, [rows])
 
-  const exportRoster = () => {
-    const csv = toCsv(
-      filtered.map((r) => ({
-        candidate: r.candidate.fullName,
-        candidateId: r.candidate.candidateId,
-        email: r.candidate.email,
-        batch: r.candidate.batch,
-        location: r.candidate.location,
-        trainer: r.candidate.trainerName,
-        currentTask: r.currentTaskId ?? '',
-        currentAssignment: r.currentAssignmentId ?? '',
-        assignmentsPassed: r.result.assignmentsPassed,
-        attempts: r.result.totalAttempts,
-        avgWpm: r.result.avgWpm,
-        avgAccuracy: r.result.avgAccuracy,
-        criticalDataAccuracy: r.result.criticalDataAccuracy,
-        multitasking: r.result.multitaskingScore,
-        task1Average: r.result.task1Average,
-        task2Average: r.result.task2Average,
-        finalScore: r.result.finalScore,
-        performance: r.result.performanceLevel,
-        risk: r.result.risk,
-        status: STATUS_LABEL[r.result.status],
-        certified: r.result.certified,
-      })),
-    )
+  const kpis = React.useMemo(
+    () => ({
+      total: roster.data?.total ?? 0,
+      certified: decorated.filter((d) => d.status === 'certified').length,
+      inProgress: decorated.filter((d) => d.status === 'in-progress').length,
+      coaching: decorated.filter((d) => d.status === 'needs-coaching').length,
+      danger: decorated.filter((d) => d.status === 'danger').length,
+      notCertified: decorated.filter((d) => d.status === 'not-certified').length,
+    }),
+    [decorated, roster.data],
+  )
+
+  const toggleSort = (key: string) => {
+    if (sort === key) setDirection((d) => (d === 'asc' ? 'desc' : 'asc'))
+    else {
+      setSort(key)
+      setDirection('desc')
+    }
+  }
+
+  /** Exports the current page. The full cohort export lives on Results & Export. */
+  const exportPage = () => {
     downloadBlob(
-      new Blob([csv], { type: 'text/csv;charset=utf-8' }),
-      `xtmx-candidate-roster-${new Date().toISOString().slice(0, 10)}.csv`,
+      new Blob(
+        [
+          toCsv(
+            visible.map((d) => ({
+              candidate: d.row.fullName,
+              candidateId: d.row.candidateId,
+              email: d.row.email,
+              batch: d.row.batch,
+              location: d.row.location,
+              trainer: d.row.trainerName,
+              assignmentsPassed: d.row.assignmentsPassed,
+              attempts: d.row.totalAttempts,
+              avgWpm: d.row.avgWpm,
+              avgAccuracy: d.row.avgAccuracy,
+              criticalDataAccuracy: d.row.criticalDataAccuracy,
+              multitasking: d.row.multitaskingScore,
+              task1Average: d.row.task1Average,
+              task2Average: d.row.task2Average,
+              finalScore: d.row.finalScore,
+              performance: d.performance,
+              risk: d.risk,
+              status: STATUS_LABEL[d.status],
+              certified: d.row.certified,
+            })),
+          ),
+        ],
+        { type: 'text/csv;charset=utf-8' },
+      ),
+      `xtmx-roster-page-${page + 1}.csv`,
     )
   }
+
+  const total = roster.data?.total ?? 0
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   return (
     <div className="mx-auto max-w-[1600px]">
@@ -150,12 +188,21 @@ export default function TrainerDashboard() {
         title="Candidate Overview"
         description="Every candidate, their current position in the assessment, and why they passed or failed."
         actions={
-          <Button variant="outline" onClick={exportRoster}>
+          <Button variant="outline" onClick={exportPage} disabled={!visible.length}>
             <Download className="size-4" />
-            Export results
+            Export page
           </Button>
         }
       />
+
+      {roster.error && (
+        <p
+          role="alert"
+          className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-800"
+        >
+          {roster.error}
+        </p>
+      )}
 
       {/* ---- KPIs ---- */}
       <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
@@ -165,28 +212,36 @@ export default function TrainerDashboard() {
           value={kpis.certified}
           tone="success"
           icon={<ShieldCheck className="size-3.5" />}
+          hint="on this page"
         />
-        <MetricCard label="In progress" value={kpis.inProgress} icon={<UserCheck className="size-3.5" />} />
+        <MetricCard
+          label="In progress"
+          value={kpis.inProgress}
+          icon={<UserCheck className="size-3.5" />}
+          hint="on this page"
+        />
         <MetricCard
           label="Needs coaching"
           value={kpis.coaching}
           tone="warning"
           icon={<AlertTriangle className="size-3.5" />}
+          hint="on this page"
         />
         <MetricCard
           label="Danger"
           value={kpis.danger}
           tone="danger"
           icon={<TrendingDown className="size-3.5" />}
+          hint="on this page"
         />
-        <MetricCard label="Not certified" value={kpis.notCertified} tone="danger" />
+        <MetricCard label="Not certified" value={kpis.notCertified} tone="danger" hint="on this page" />
       </div>
 
-      {/* ---- Distribution ---- */}
+      {/* ---- Distribution + thresholds ---- */}
       <div className="mb-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,340px)]">
         <Card className="p-5">
           <h2 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-            Cohort score distribution
+            Score distribution (current page)
           </h2>
           <ScoreDistributionChart data={distribution} />
         </Card>
@@ -194,18 +249,22 @@ export default function TrainerDashboard() {
           <h2 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
             Active thresholds
           </h2>
-          <dl className="space-y-2 text-sm">
-            <Threshold label="Passing score" value={`${settings.passingScore} / 100`} />
-            <Threshold label="Minimum WPM" value={`${settings.minWpm} WPM`} />
-            <Threshold label="Typing accuracy" value={`${settings.minAccuracy}%`} />
-            <Threshold label="Data accuracy" value={`${settings.minDataAccuracy}%`} />
-            <Threshold label="Critical-data accuracy" value={`${settings.minCriticalAccuracy}%`} />
-            <Threshold label="Multitasking" value={`${settings.minMultitaskingScore}%`} />
-            <Threshold
-              label="Retries"
-              value={settings.unlimitedRetries ? 'Unlimited' : `Max ${settings.maxAttempts}`}
-            />
-          </dl>
+          {settings ? (
+            <dl className="space-y-2 text-sm">
+              <Threshold label="Passing score" value={`${settings.passingScore} / 100`} />
+              <Threshold label="Minimum WPM" value={`${settings.minWpm} WPM`} />
+              <Threshold label="Typing accuracy" value={`${settings.minAccuracy}%`} />
+              <Threshold label="Data accuracy" value={`${settings.minDataAccuracy}%`} />
+              <Threshold label="Critical-data accuracy" value={`${settings.minCriticalAccuracy}%`} />
+              <Threshold label="Multitasking" value={`${settings.minMultitaskingScore}%`} />
+              <Threshold
+                label="Retries"
+                value={settings.unlimitedRetries ? 'Unlimited' : `Max ${settings.maxAttempts}`}
+              />
+            </dl>
+          ) : (
+            <p className="text-sm text-muted-foreground">Loading…</p>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -219,19 +278,19 @@ export default function TrainerDashboard() {
 
       {/* ---- Filters ---- */}
       <Card className="mb-3 p-3">
-        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-navy-300" />
             <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
               placeholder="Search name, ID or email…"
               className="pl-8"
             />
           </div>
           <Select value={batch} onChange={(e) => setBatch(e.target.value)}>
             <option value="all">All batches</option>
-            {BATCHES.map((b) => (
+            {(batches.data?.batches ?? []).map((b) => (
               <option key={b} value={b}>
                 {b}
               </option>
@@ -245,11 +304,6 @@ export default function TrainerDashboard() {
               </option>
             ))}
           </Select>
-          <Select value={task} onChange={(e) => setTask(e.target.value)}>
-            <option value="all">All tasks</option>
-            <option value="1">Task 1 · Typing</option>
-            <option value="2">Task 2 · Listening</option>
-          </Select>
           <Select value={risk} onChange={(e) => setRisk(e.target.value)}>
             <option value="all">All risk levels</option>
             {(['green', 'mid', 'low', 'danger', 'below-standard'] as RiskLevel[]).map((r) => (
@@ -259,10 +313,19 @@ export default function TrainerDashboard() {
             ))}
           </Select>
         </div>
+        <p className="mt-2 px-1 text-[11px] text-muted-foreground">
+          Search and batch filter the whole cohort on the server. Status and risk refine the
+          {' '}{PAGE_SIZE} rows on this page.
+        </p>
       </Card>
 
       {/* ---- Roster ---- */}
-      {filtered.length === 0 ? (
+      {roster.loading && !roster.data ? (
+        <Card className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" />
+          Loading candidates…
+        </Card>
+      ) : visible.length === 0 ? (
         <EmptyState
           icon={<Users className="size-8" />}
           title="No candidates match these filters"
@@ -272,10 +335,9 @@ export default function TrainerDashboard() {
               variant="outline"
               size="sm"
               onClick={() => {
-                setQuery('')
+                setSearch('')
                 setBatch('all')
                 setStatus('all')
-                setTask('all')
                 setRisk('all')
               }}
             >
@@ -289,31 +351,109 @@ export default function TrainerDashboard() {
             <table className="data-grid min-w-[1080px]">
               <thead>
                 <tr>
-                  <SortHeader label="Candidate" active={sortKey === 'name'} dir={sortDir} onClick={() => sort('name')} />
-                  <th>Task</th>
-                  <th>Assignment</th>
-                  <SortHeader label="Attempts" align="right" active={sortKey === 'attempts'} dir={sortDir} onClick={() => sort('attempts')} />
-                  <SortHeader label="WPM" align="right" active={sortKey === 'wpm'} dir={sortDir} onClick={() => sort('wpm')} />
-                  <SortHeader label="Accuracy" align="right" active={sortKey === 'accuracy'} dir={sortDir} onClick={() => sort('accuracy')} />
-                  <SortHeader label="Score" align="right" active={sortKey === 'score'} dir={sortDir} onClick={() => sort('score')} />
-                  <SortHeader label="Progress" align="right" active={sortKey === 'progress'} dir={sortDir} onClick={() => sort('progress')} />
+                  <SortHeader label="Candidate" col="name" sort={sort} dir={direction} onClick={toggleSort} />
+                  <th>Progress</th>
+                  <SortHeader label="Attempts" align="right" col="attempts" sort={sort} dir={direction} onClick={toggleSort} />
+                  <SortHeader label="WPM" align="right" col="wpm" sort={sort} dir={direction} onClick={toggleSort} />
+                  <SortHeader label="Accuracy" align="right" col="accuracy" sort={sort} dir={direction} onClick={toggleSort} />
+                  <th className="text-right">Critical</th>
+                  <SortHeader label="Score" align="right" col="score" sort={sort} dir={direction} onClick={toggleSort} />
+                  <th>Performance</th>
                   <th>Risk</th>
                   <th>Status</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((row) => (
-                  <RosterTableRow
-                    key={row.candidate.id}
-                    row={row}
-                    onOpen={() => navigate(`/trainer/candidate/${row.candidate.id}`)}
-                  />
+                {visible.map(({ row, status: rowStatus, risk: rowRisk, performance }) => (
+                  <tr
+                    key={row.id}
+                    className="cursor-pointer"
+                    onClick={() => navigate(`/trainer/candidate/${row.id}`)}
+                  >
+                    <td>
+                      <div className="flex items-center gap-2.5">
+                        <Avatar name={row.fullName} />
+                        <div className="min-w-0">
+                          <p className="truncate text-[13px] font-semibold text-navy-900">
+                            {row.fullName}
+                          </p>
+                          <p className="truncate font-mono text-[11px] text-muted-foreground">
+                            {row.candidateId} · {row.batch}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <Badge variant={row.assignmentsPassed === TOTAL_ASSIGNMENTS ? 'success' : 'outline'}>
+                        {row.assignmentsPassed}/{TOTAL_ASSIGNMENTS}
+                      </Badge>
+                    </td>
+                    <td className="text-right tabular font-mono text-[13px]">{row.totalAttempts}</td>
+                    <td className="text-right tabular font-mono text-[13px]">{row.avgWpm || '—'}</td>
+                    <td className="text-right tabular font-mono text-[13px]">
+                      {row.avgAccuracy ? `${row.avgAccuracy}%` : '—'}
+                    </td>
+                    <td className="text-right tabular font-mono text-[13px]">
+                      {row.criticalDataAccuracy ? `${row.criticalDataAccuracy}%` : '—'}
+                    </td>
+                    <td className="text-right">
+                      <span
+                        className={cn(
+                          'metric-value text-[13px]',
+                          row.finalScore >= 85
+                            ? 'text-emerald-700'
+                            : row.finalScore >= 75
+                              ? 'text-navy-900'
+                              : 'text-red-700',
+                        )}
+                      >
+                        {round(row.finalScore, 1)}
+                      </span>
+                    </td>
+                    <td>
+                      <PerformanceBadge level={performance as PerformanceLevel} />
+                    </td>
+                    <td>
+                      <RiskBadge risk={rowRisk} />
+                    </td>
+                    <td>
+                      <StatusBadge status={rowStatus} />
+                    </td>
+                  </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <div className="border-t border-border px-4 py-2.5 text-[11px] text-muted-foreground">
-            Showing {filtered.length} of {rows.length} candidates
+
+          {/* ---- Pagination ---- */}
+          <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-2.5">
+            <p className="text-[11px] text-muted-foreground">
+              Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total}
+              {roster.loading && ' · refreshing…'}
+            </p>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page === 0}
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+              >
+                <ChevronLeft className="size-3.5" />
+                Previous
+              </Button>
+              <span className="px-2 text-[11px] tabular text-muted-foreground">
+                {page + 1} / {pageCount}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page + 1 >= pageCount}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Next
+                <ChevronRight className="size-3.5" />
+              </Button>
+            </div>
           </div>
         </Card>
       )}
@@ -323,90 +463,26 @@ export default function TrainerDashboard() {
 
 /* -------------------------------------------------------------------------- */
 
-function RosterTableRow({ row, onOpen }: { row: RosterRow; onOpen: () => void }) {
-  const { candidate, result, currentTaskId, currentAssignmentId, live } = row
-  return (
-    <tr className="cursor-pointer" onClick={onOpen}>
-      <td>
-        <div className="flex items-center gap-2.5">
-          <Avatar name={candidate.fullName} />
-          <div className="min-w-0">
-            <p className="flex items-center gap-1.5 truncate text-[13px] font-semibold text-navy-900">
-              {candidate.fullName}
-              {live && (
-                <span
-                  title="Currently in an assessment"
-                  className="inline-flex size-1.5 shrink-0 animate-pulse-soft rounded-full bg-brand-600"
-                />
-              )}
-            </p>
-            <p className="truncate font-mono text-[11px] text-muted-foreground">
-              {candidate.candidateId} · {candidate.batch}
-            </p>
-          </div>
-        </div>
-      </td>
-      <td>
-        {currentTaskId ? (
-          <Badge variant="outline">Task {currentTaskId}</Badge>
-        ) : (
-          <Badge variant="success">Complete</Badge>
-        )}
-      </td>
-      <td className="font-mono text-[12px] text-navy-700">
-        {currentTaskId && currentAssignmentId
-          ? `T${currentTaskId}-A${currentAssignmentId}`
-          : '—'}
-      </td>
-      <td className="text-right tabular font-mono text-[13px]">{result.totalAttempts}</td>
-      <td className="text-right tabular font-mono text-[13px]">{result.avgWpm || '—'}</td>
-      <td className="text-right tabular font-mono text-[13px]">
-        {result.avgAccuracy ? `${result.avgAccuracy}%` : '—'}
-      </td>
-      <td className="text-right">
-        <span
-          className={cn(
-            'metric-value text-[13px]',
-            result.finalScore >= 85
-              ? 'text-emerald-700'
-              : result.finalScore >= 75
-                ? 'text-navy-900'
-                : 'text-red-700',
-          )}
-        >
-          {round(result.finalScore, 1)}
-        </span>
-      </td>
-      <td className="text-right tabular font-mono text-[13px]">
-        {result.assignmentsPassed}/{result.totalAssignments}
-      </td>
-      <td>
-        <RiskBadge risk={result.risk} />
-      </td>
-      <td>
-        <StatusBadge status={result.status} />
-      </td>
-    </tr>
-  )
-}
-
 function SortHeader({
   label,
-  active,
+  col,
+  sort,
   dir,
   onClick,
   align = 'left',
 }: {
   label: string
-  active: boolean
+  col: string
+  sort: string
   dir: 'asc' | 'desc'
-  onClick: () => void
+  onClick: (col: string) => void
   align?: 'left' | 'right'
 }) {
+  const active = sort === col
   return (
     <th className={align === 'right' ? 'text-right' : undefined}>
       <button
-        onClick={onClick}
+        onClick={() => onClick(col)}
         className={cn(
           'inline-flex items-center gap-1 transition-colors hover:text-navy-900',
           active && 'text-navy-900',
@@ -426,3 +502,5 @@ const Threshold = ({ label, value }: { label: string; value: string }) => (
     <dd className="metric-value text-[13px] text-navy-900">{value}</dd>
   </div>
 )
+
+export type { RosterRow }

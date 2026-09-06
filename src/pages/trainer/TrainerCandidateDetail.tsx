@@ -7,11 +7,14 @@ import {
   MapPin,
   RotateCcw,
   ShieldAlert,
+  Loader2,
   Users,
 } from 'lucide-react'
-import type { TaskId } from '@/types'
+import type { Attempt, TaskId } from '@/types'
 import { TASKS } from '@/data/tasks'
 import { useAppStore } from '@/store/appStore'
+import { trainer } from '@/api/client'
+import { useApi } from '@/hooks/useApi'
 import { findProgress } from '@/engine/certification'
 import {
   AssignmentScoreChart,
@@ -45,13 +48,10 @@ export default function TrainerCandidateDetail() {
   const { candidateId = '' } = useParams()
   const navigate = useNavigate()
 
-  const candidate = useAppStore((s) => s.candidates.find((c) => c.id === candidateId))
-  const getAttempts = useAppStore((s) => s.getAttempts)
-  const getProgress = useAppStore((s) => s.getProgress)
-  const getResult = useAppStore((s) => s.getResult)
   const settings = useAppStore((s) => s.settings)
-  const resetAssignment = useAppStore((s) => s.resetAssignment)
-  const resetCandidate = useAppStore((s) => s.resetCandidate)
+
+  // One candidate, fetched on demand. Staff-only on the server.
+  const detail = useApi(() => trainer.candidate(candidateId), [candidateId])
 
   const [tab, setTab] = React.useState<'overview' | 'assignments' | 'attempts' | 'integrity'>(
     'overview',
@@ -60,12 +60,21 @@ export default function TrainerCandidateDetail() {
     { taskId: TaskId; assignmentId: number } | 'all' | null
   >(null)
 
-  if (!candidate) {
+  if (detail.loading && !detail.data) {
+    return (
+      <div className="mx-auto max-w-3xl py-16 text-center">
+        <Loader2 className="mx-auto size-5 animate-spin text-navy-300" />
+        <p className="mt-2 text-sm text-muted-foreground">Loading candidate…</p>
+      </div>
+    )
+  }
+
+  if (!detail.data) {
     return (
       <div className="mx-auto max-w-3xl">
         <EmptyState
           icon={<Users className="size-8" />}
-          title="Candidate not found"
+          title={detail.error ?? 'Candidate not found'}
           action={
             <Button variant="outline" onClick={() => navigate('/trainer')}>
               Back to overview
@@ -76,10 +85,8 @@ export default function TrainerCandidateDetail() {
     )
   }
 
-  const attempts = getAttempts(candidate.id)
-  const progress = getProgress(candidate.id)
-  const result = getResult(candidate.id)
-  const flagged = attempts.filter((a) => a.integrity.flagged)
+  const { candidate, attempts, progress, result } = detail.data
+  const flagged = attempts.filter((a: Attempt) => a.integrity.flagged)
 
   const chartData = progress.map((p) => ({
     label: `T${p.taskId}A${p.assignmentId}`,
@@ -99,7 +106,7 @@ export default function TrainerCandidateDetail() {
 
   const exportCandidate = () => {
     const csv = toCsv(
-      attempts.map((a) => ({
+      attempts.map((a: Attempt) => ({
         candidate: candidate.fullName,
         candidateId: candidate.candidateId,
         batch: candidate.batch,
@@ -309,7 +316,7 @@ export default function TrainerCandidateDetail() {
                   <tbody>
                     {task.assignments.map((assignment) => {
                       const p = findProgress(progress, task.id, assignment.id)
-                      const first = attempts.find((a) => a.id === p?.firstAttemptId)
+                      const first = attempts.find((a: Attempt) => a.id === p?.firstAttemptId)
                       return (
                         <tr key={assignment.id}>
                           <td>
@@ -399,7 +406,7 @@ export default function TrainerCandidateDetail() {
       {tab === 'attempts' &&
         (attempts.length ? (
           <div className="space-y-2">
-            {[...attempts].reverse().map((attempt) => (
+            {[...attempts].reverse().map((attempt: Attempt) => (
               <AttemptRow key={attempt.id} attempt={attempt} />
             ))}
           </div>
@@ -419,11 +426,11 @@ export default function TrainerCandidateDetail() {
             />
             <MetricCard
               label="Total focus losses"
-              value={attempts.reduce((n, a) => n + a.integrity.blurCount, 0)}
+              value={attempts.reduce((n: number, a: Attempt) => n + a.integrity.blurCount, 0)}
             />
             <MetricCard
               label="Blocked pastes"
-              value={attempts.reduce((n, a) => n + a.integrity.pasteAttempts, 0)}
+              value={attempts.reduce((n: number, a: Attempt) => n + a.integrity.pasteAttempts, 0)}
             />
             <MetricCard
               label="Flag threshold"
@@ -450,7 +457,7 @@ export default function TrainerCandidateDetail() {
                   </tr>
                 </thead>
                 <tbody>
-                  {flagged.map((a) => (
+                  {flagged.map((a: Attempt) => (
                     <tr key={a.id}>
                       <td className="font-mono text-[12px]">
                         T{a.taskId}-A{a.assignmentId} · #{a.attemptNumber}
@@ -501,12 +508,11 @@ export default function TrainerCandidateDetail() {
             <Button
               variant="destructive"
               onClick={() => {
-                if (confirmReset === 'all') {
-                  resetCandidate(candidate.id)
-                } else if (confirmReset) {
-                  resetAssignment(candidate.id, confirmReset.taskId, confirmReset.assignmentId)
-                }
-                setConfirmReset(null)
+                const target = confirmReset === 'all' ? undefined : (confirmReset ?? undefined)
+                void trainer
+                  .reset(candidate.id, target)
+                  .then(() => detail.refetch())
+                  .finally(() => setConfirmReset(null))
               }}
             >
               Confirm reset

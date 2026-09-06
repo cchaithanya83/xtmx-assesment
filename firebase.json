@@ -1,0 +1,33 @@
+{
+  "hosting": {
+    // Vite's build output. NOT `public/` — that is the static-asset source
+    // folder, which Vite copies *into* dist at build time.
+    "public": "dist",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+
+    // Single-page app: React Router owns every path, so anything that is not a
+    // real file must serve index.html. Without this, /signin and every deep
+    // link 404 on refresh or when shared.
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ],
+
+    "headers": [
+      {
+        // Fingerprinted bundles never change under the same name.
+        "source": "/assets/**",
+        "headers": [
+          { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+        ]
+      },
+      {
+        // The entry point must never be cached, or a deploy goes unnoticed.
+        "source": "/index.html",
+        "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }]
+      }
+    ]
+  }
+}

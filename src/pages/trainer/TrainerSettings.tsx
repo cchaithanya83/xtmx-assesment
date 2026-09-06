@@ -13,8 +13,8 @@ import {
 import type { AudioLevelConfig, TrainerSettings as Settings, WpmScoreBand } from '@/types'
 import { DEFAULT_SETTINGS } from '@/data/settings'
 import { BrowserTTSProvider, resolveTTSProvider, type TTSVoice } from '@/audio/tts'
-import { adapterLabel } from '@/persistence'
 import { useAppStore } from '@/store/appStore'
+import { admin } from '@/api/client'
 import { PageHeader } from '@/components/shared'
 import { Badge, Button, Card, Dialog, Input, Label, Select, Switch } from '@/components/ui'
 import { clamp } from '@/lib/utils'
@@ -30,10 +30,10 @@ import { clamp } from '@/lib/utils'
 export default function TrainerSettingsPage() {
   const settings = useAppStore((s) => s.settings)
   const updateSettings = useAppStore((s) => s.updateSettings)
-  const resetSettings = useAppStore((s) => s.resetSettings)
-  const deleteDemoData = useAppStore((s) => s.deleteDemoData)
-  const reseedDemoData = useAppStore((s) => s.reseedDemoData)
-  const candidates = useAppStore((s) => s.candidates)
+  const refreshMe = useAppStore((s) => s.refreshMe)
+  const isAdmin = useAppStore((s) => s.isAdmin)()
+  const [busy, setBusy] = React.useState(false)
+  const [banner, setBanner] = React.useState<string | null>(null)
 
   const [draft, setDraft] = React.useState<Settings>(settings)
   const [saved, setSaved] = React.useState(false)
@@ -47,7 +47,6 @@ export default function TrainerSettingsPage() {
   }, [])
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(settings)
-  const demoCount = candidates.filter((c) => c.isDemo).length
 
   const set = <K extends keyof Settings>(key: K, value: Settings[K]) =>
     setDraft((d) => ({ ...d, [key]: value }))
@@ -59,10 +58,37 @@ export default function TrainerSettingsPage() {
       set(key, clamp(Number.isFinite(parsed) ? parsed : min, min, max) as Settings[K])
     }
 
-  const save = () => {
-    updateSettings(draft)
-    setSaved(true)
-    window.setTimeout(() => setSaved(false), 2200)
+  const save = async () => {
+    setBusy(true)
+    setBanner(null)
+    try {
+      await updateSettings(draft)
+      setSaved(true)
+      window.setTimeout(() => setSaved(false), 2200)
+    } catch (err) {
+      setBanner((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** Demo data lives in the database now, so seeding is a server operation. */
+  const demoData = async (action: 'seed' | 'clear') => {
+    setBusy(true)
+    setBanner(null)
+    try {
+      const res = await admin.demoData(action)
+      setBanner(
+        action === 'seed'
+          ? `Seeded ${res.candidates} demo candidates.`
+          : 'Demo data removed.',
+      )
+      await refreshMe()
+    } catch (err) {
+      setBanner((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
   }
 
   const setBand = (index: number, patch: Partial<WpmScoreBand>) => {
@@ -104,13 +130,19 @@ export default function TrainerSettingsPage() {
               <RotateCcw className="size-4" />
               Restore defaults
             </Button>
-            <Button onClick={save} disabled={!dirty}>
+            <Button onClick={() => void save()} disabled={!dirty || busy}>
               <Save className="size-4" />
               {saved ? 'Saved' : 'Save changes'}
             </Button>
           </>
         }
       />
+
+      {banner && (
+        <p className="mb-4 rounded-md border border-border bg-muted/50 px-3 py-2 text-[13px] font-medium text-navy-800">
+          {banner}
+        </p>
+      )}
 
       <div className="space-y-4">
         {/* ---- Typing requirements ---- */}
@@ -119,7 +151,7 @@ export default function TrainerSettingsPage() {
           title="Typing requirements"
           description="Gates applied to every Task 1 assignment and to final certification."
         >
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <NumberField
               label="Minimum WPM"
               value={draft.minWpm}
@@ -137,6 +169,12 @@ export default function TrainerSettingsPage() {
               value={draft.passingScore}
               onChange={num('passingScore', 40, 100)}
               hint="Out of 100, per assignment"
+            />
+            <NumberField
+              label="Minimum completion (%)"
+              value={draft.minCompletion}
+              onChange={num('minCompletion', 50, 100)}
+              hint="Share of the passage that must be transcribed"
             />
           </div>
 
@@ -460,23 +498,21 @@ export default function TrainerSettingsPage() {
           description="Persistence backend and demo data management."
         >
           <div className="mb-4 flex flex-wrap items-center gap-2">
-            <Badge variant="accent">{adapterLabel()}</Badge>
-            <Badge variant="muted">{candidates.length} candidates</Badge>
-            <Badge variant="muted">{demoCount} demo records</Badge>
+            <Badge variant="accent">Supabase · secure API</Badge>
+            <Badge variant="muted">Row Level Security: deny-all</Badge>
           </div>
           <p className="mb-4 text-[13px] leading-relaxed text-muted-foreground">
-            Data is stored via the active persistence adapter. Set{' '}
-            <code className="font-mono">VITE_SUPABASE_URL</code> and{' '}
-            <code className="font-mono">VITE_SUPABASE_ANON_KEY</code> to switch from local browser
-            storage to Supabase — the schema and row-level-security policies are in{' '}
+            All data is served by the <code className="font-mono">api</code> Edge Function, which
+            authorises every request against your login. The browser holds no database credentials
+            — Row Level Security denies direct access outright. Schema and policies live in{' '}
             <code className="font-mono">supabase/schema.sql</code>.
           </p>
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={reseedDemoData}>
+            <Button variant="outline" onClick={() => void demoData('seed')}>
               <Sparkles className="size-4" />
               Regenerate demo candidates
             </Button>
-            <Button variant="destructive" onClick={() => setConfirm('demo')} disabled={!demoCount}>
+            <Button variant="destructive" onClick={() => setConfirm('demo')} disabled={!isAdmin || busy}>
               <Trash2 className="size-4" />
               Delete demo data
             </Button>
@@ -493,7 +529,7 @@ export default function TrainerSettingsPage() {
               <Button variant="outline" onClick={() => setDraft(settings)}>
                 Discard
               </Button>
-              <Button onClick={save}>
+              <Button onClick={() => void save()} disabled={busy}>
                 <Save className="size-4" />
                 Save changes
               </Button>
@@ -508,7 +544,7 @@ export default function TrainerSettingsPage() {
         title={confirm === 'demo' ? 'Delete demo data?' : 'Restore default configuration?'}
         description={
           confirm === 'demo'
-            ? `This removes ${demoCount} seeded demo candidates and all of their attempts. Real candidate records are not affected.`
+            ? 'This removes every seeded demo candidate and all of their attempts. Real candidate records are not affected.'
             : 'All thresholds, scoring bands and difficulty settings return to the platform defaults.'
         }
         footer={
@@ -520,9 +556,9 @@ export default function TrainerSettingsPage() {
               variant="destructive"
               onClick={() => {
                 if (confirm === 'demo') {
-                  deleteDemoData()
+                  void demoData('clear')
                 } else {
-                  resetSettings()
+                  void updateSettings(DEFAULT_SETTINGS)
                   setDraft(DEFAULT_SETTINGS)
                 }
                 setConfirm(null)

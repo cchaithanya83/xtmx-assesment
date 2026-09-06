@@ -1,3 +1,4 @@
+import * as React from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ArrowRight,
@@ -30,15 +31,13 @@ import { cn, formatDuration, round } from '@/lib/utils'
 export default function ResultScreen() {
   const navigate = useNavigate()
   const candidate = useCurrentCandidate()
-  const lastAttemptId = useAppStore((s) => s.lastAttemptId)
-  const attempts = useAppStore((s) => s.attempts)
+  const attempt = useAppStore((s) => s.lastAttempt)
+  const progress = useAppStore((s) => s.progress)
+  const result = useAppStore((s) => s.result)
   const startAssignment = useAppStore((s) => s.startAssignment)
-  const getProgress = useAppStore((s) => s.getProgress)
-  const getResult = useAppStore((s) => s.getResult)
+  const [launchError, setLaunchError] = React.useState<string | null>(null)
 
-  const attempt = attempts.find((a) => a.id === lastAttemptId)
-
-  if (!candidate || !attempt) {
+  if (!candidate || !attempt || !result) {
     return (
       <div className="mx-auto max-w-2xl py-16 text-center">
         <p className="text-sm text-muted-foreground">No recent attempt to display.</p>
@@ -50,8 +49,6 @@ export default function ResultScreen() {
   }
 
   const assignment = getAssignment(attempt.taskId, attempt.assignmentId)
-  const progress = getProgress(candidate.id)
-  const result = getResult(candidate.id)
   const passed = attempt.passed
   const isPractice = attempt.mode === 'practice'
 
@@ -64,19 +61,26 @@ export default function ResultScreen() {
   const elapsed =
     (new Date(attempt.completedAt).getTime() - new Date(attempt.startedAt).getTime()) / 1000
 
-  const retry = (mode: 'certification' | 'practice') => {
-    const session = startAssignment(attempt.taskId, attempt.assignmentId, mode)
-    if (session) navigate(`/assessment/${attempt.taskId}/${attempt.assignmentId}`)
+  /** Both of these ask the server to issue a new session; it may refuse. */
+  const retry = async (mode: 'certification' | 'practice') => {
+    setLaunchError(null)
+    try {
+      await startAssignment(attempt.taskId, attempt.assignmentId, mode)
+      navigate(`/assessment/${attempt.taskId}/${attempt.assignmentId}`)
+    } catch (err) {
+      setLaunchError((err as Error).message)
+    }
   }
 
-  const goNext = () => {
+  const goNext = async () => {
     if (nextInTask) {
-      const session = startAssignment(attempt.taskId, nextInTask, 'certification')
-      if (session) {
+      setLaunchError(null)
+      try {
+        await startAssignment(attempt.taskId, nextInTask, 'certification')
         navigate(`/assessment/${attempt.taskId}/${nextInTask}`)
-        return
+      } catch {
+        navigate(`/task/${attempt.taskId}`)
       }
-      navigate(`/task/${attempt.taskId}`)
     } else if (nextTaskId) {
       navigate(`/task/${nextTaskId}`)
     } else {
@@ -233,14 +237,14 @@ export default function ResultScreen() {
                   size="sm"
                   label="In-field corrections"
                   value={Object.values(attempt.audioTelemetry.fields).reduce(
-                    (n, f) => n + f.corrections,
+                    (n: number, f) => n + f.corrections,
                     0,
                   )}
                 />
                 <Metric
                   size="sm"
                   label="Verification prompts"
-                  value={`${attempt.audioTelemetry.verificationAnswers.filter((a) => a.correct).length}/${attempt.audioTelemetry.verificationAnswers.length}`}
+                  value={`${attempt.audioTelemetry.verificationAnswers.filter((a: { correct: boolean }) => a.correct).length}/${attempt.audioTelemetry.verificationAnswers.length}`}
                 />
                 <Metric size="sm" label="Replays used" value={attempt.audioTelemetry.replaysUsed} />
                 <Metric size="sm" label="Time taken" value={formatDuration(elapsed)} />
@@ -289,9 +293,17 @@ export default function ResultScreen() {
           </Card>
 
           {/* ---- Actions ---- */}
+          {launchError && (
+            <p
+              role="alert"
+              className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[13px] font-medium text-red-800"
+            >
+              {launchError}
+            </p>
+          )}
           <div className="space-y-2">
             {passed && !isPractice ? (
-              <Button size="lg" className="w-full" onClick={goNext}>
+              <Button size="lg" className="w-full" onClick={() => void goNext()}>
                 {nextInTask
                   ? `Continue to Assignment ${nextInTask}`
                   : nextTaskId
@@ -300,12 +312,12 @@ export default function ResultScreen() {
                 <ArrowRight className="size-4" />
               </Button>
             ) : (
-              <Button size="lg" className="w-full" onClick={() => retry('certification')}>
+              <Button size="lg" className="w-full" onClick={() => void retry('certification')}>
                 <RotateCcw className="size-4" />
                 Retry assignment
               </Button>
             )}
-            <Button variant="outline" className="w-full" onClick={() => retry('practice')}>
+            <Button variant="outline" className="w-full" onClick={() => void retry('practice')}>
               <Dumbbell className="size-4" />
               Practice before retry
             </Button>

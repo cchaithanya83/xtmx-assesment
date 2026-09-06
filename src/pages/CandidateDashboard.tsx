@@ -1,3 +1,4 @@
+import * as React from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   Activity,
@@ -13,6 +14,7 @@ import {
   ShieldCheck,
   Target,
 } from 'lucide-react'
+import type { AssessmentResult, AssignmentProgress, GateResult } from '@/types'
 import { TASKS, TOTAL_ASSIGNMENTS } from '@/data/tasks'
 import { useAppStore, useCurrentCandidate } from '@/store/appStore'
 import { findProgress, nextAssignment } from '@/engine/certification'
@@ -36,21 +38,21 @@ import { cn, round } from '@/lib/utils'
 export default function CandidateDashboard() {
   const navigate = useNavigate()
   const candidate = useCurrentCandidate()
-  const getProgress = useAppStore((s) => s.getProgress)
-  const getResult = useAppStore((s) => s.getResult)
-  const attempts = useAppStore((s) => s.attempts)
+  const progress = useAppStore((s) => s.progress)
+  const result = useAppStore((s) => s.result)
+  const refreshProgress = useAppStore((s) => s.refreshProgress)
 
-  if (!candidate) return null
+  // The dashboard is the landing screen after every assessment, so refetch on
+  // mount rather than trusting whatever the store happened to be holding.
+  React.useEffect(() => {
+    void refreshProgress()
+  }, [refreshProgress])
 
-  const progress = getProgress(candidate.id)
-  const result = getResult(candidate.id)
+  if (!candidate || !result) return null
   const next = nextAssignment(progress)
   const completed = result.assignmentsPassed
   const allDone = completed === TOTAL_ASSIGNMENTS
   const firstName = candidate.fullName.split(' ')[0]
-
-  // Referenced so the dashboard re-renders as attempts are recorded.
-  void attempts.length
 
   return (
     <div className="mx-auto max-w-7xl">
@@ -116,7 +118,7 @@ export default function CandidateDashboard() {
           className="mt-3"
         />
         <div className="mt-2 flex flex-wrap gap-1">
-          {progress.map((p) => (
+          {progress.map((p: AssignmentProgress) => (
             <span
               key={`${p.taskId}-${p.assignmentId}`}
               title={`Task ${p.taskId} · Assignment ${p.assignmentId} — ${p.status}`}
@@ -182,8 +184,8 @@ export default function CandidateDashboard() {
       {/* ---- Task cards ---- */}
       <div className="grid gap-4 xl:grid-cols-2">
         {TASKS.map((task) => {
-          const taskProgress = progress.filter((p) => p.taskId === task.id)
-          const passed = taskProgress.filter((p) => p.status === 'passed').length
+          const taskProgress = progress.filter((p: AssignmentProgress) => p.taskId === task.id)
+          const passed = taskProgress.filter((p: AssignmentProgress) => p.status === 'passed').length
           const average = task.id === 1 ? result.task1Average : result.task2Average
           return (
             <Card key={task.id} className="flex flex-col p-5">
@@ -300,7 +302,7 @@ function CertificationSummary({
   result,
   candidateName,
 }: {
-  result: ReturnType<ReturnType<typeof useAppStore.getState>['getResult']>
+  result: AssessmentResult
   candidateName: string
 }) {
   return (
@@ -343,7 +345,7 @@ function CertificationSummary({
           <h3 className="mb-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
             Outstanding certification requirements
           </h3>
-          <GateList gates={result.gates.filter((g) => !g.passed)} />
+          <GateList gates={result.gates.filter((g: GateResult) => !g.passed)} />
         </div>
       )}
     </Card>

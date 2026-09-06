@@ -22,8 +22,7 @@ import {
 } from 'lucide-react'
 import logoUrl from '@/assests/image.png'
 import { useAppStore, useCurrentCandidate } from '@/store/appStore'
-import { ROLE_LABEL } from '@/auth/accounts'
-import { adapterLabel } from '@/persistence'
+import { ROLE_LABEL } from '@/lib/roles'
 import { ORG_SHORT } from '@/data/settings'
 import { Avatar } from '@/components/shared'
 import { Badge } from '@/components/ui'
@@ -96,10 +95,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = React.useState(false)
   const location = useLocation()
   const navigate = useNavigate()
-  const account = useAppStore((s) => s.getCurrentAccount())
+  const account = useAppStore((s) => s.profile)
   const signOut = useAppStore((s) => s.signOut)
   const candidate = useCurrentCandidate()
-  const storageError = useAppStore((s) => s.storageError)
+  const storeError = useAppStore((s) => s.error)
 
   const isStaff = account?.role === 'trainer' || account?.role === 'admin'
   const nav = isStaff
@@ -113,8 +112,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setMenuOpen(false)
   }, [location.pathname])
 
-  const handleSignOut = () => {
-    signOut()
+  const handleSignOut = async () => {
+    await signOut()
     navigate('/signin', { replace: true })
   }
 
@@ -167,7 +166,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="border-t border-border p-3">
           <div className="flex items-center gap-1.5 px-1 text-[10px] text-muted-foreground">
             <Database className="size-3" />
-            <span className="truncate">{adapterLabel()}</span>
+            <span className="truncate">Secure API · Supabase</span>
           </div>
         </div>
       </aside>
@@ -209,9 +208,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
 
           <div className="flex items-center gap-2">
-            {storageError && (
-              <Badge variant="warning" title={storageError}>
-                Storage issue
+            {storeError && (
+              <Badge variant="warning" title={storeError}>
+                Connection issue
               </Badge>
             )}
 
@@ -268,7 +267,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       </button>
                       <button
                         role="menuitem"
-                        onClick={handleSignOut}
+                        onClick={() => void handleSignOut()}
                         className="flex w-full items-center gap-2.5 border-t border-border px-3 py-2.5 text-left text-sm font-medium text-red-700 transition-colors hover:bg-red-50"
                       >
                         <LogOut className="size-4" />

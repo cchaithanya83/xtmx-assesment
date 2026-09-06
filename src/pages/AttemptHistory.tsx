@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, History, ShieldAlert } from 'lucide-react'
 import type { Attempt } from '@/types'
 import { TASKS } from '@/data/tasks'
 import { useAppStore, useCurrentCandidate } from '@/store/appStore'
+import { me } from '@/api/client'
 import { AttemptTrendChart, SpeedAccuracyChart } from '@/components/charts'
 import { EmptyState, FeedbackPanel, GateList, PageHeader } from '@/components/shared'
 import { Badge, Button, Card, Tabs } from '@/components/ui'
@@ -16,13 +17,30 @@ import { cn, formatDateTime, formatDuration, round } from '@/lib/utils'
  */
 export default function AttemptHistory() {
   const candidate = useCurrentCandidate()
-  const getAttempts = useAppStore((s) => s.getAttempts)
   const settings = useAppStore((s) => s.settings)
   const [filter, setFilter] = React.useState<'all' | '1' | '2'>('all')
+  const [all, setAll] = React.useState<Attempt[]>([])
+  const [loading, setLoading] = React.useState(true)
+
+  // Fetched per view and scoped to the caller by the server — a candidate
+  // cannot widen this to anyone else's history.
+  React.useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    me.attempts()
+      .then((data) => {
+        if (!cancelled) setAll(data.attempts)
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   if (!candidate) return null
 
-  const all = getAttempts(candidate.id)
   const attempts = all.filter((a) => filter === 'all' || String(a.taskId) === filter)
 
   return (
@@ -32,7 +50,9 @@ export default function AttemptHistory() {
         description="Every attempt is permanently recorded. Retrying an assignment never removes a previous attempt."
       />
 
-      {all.length === 0 ? (
+      {loading ? (
+        <EmptyState title="Loading your attempt history…" />
+      ) : all.length === 0 ? (
         <EmptyState
           icon={<History className="size-8" />}
           title="No attempts recorded yet"

@@ -12,10 +12,17 @@ import {
   UserPlus,
   Users,
 } from 'lucide-react'
-import type { Account, AccountRole } from '@/types'
+import type { AccountRole, Profile } from '@/types'
 import { useAppStore } from '@/store/appStore'
-import { ROLE_LABEL } from '@/auth/accounts'
-import { assessPassword, generateTempPassword, isValidEmail, MIN_PASSWORD_LENGTH } from '@/auth/crypto'
+import { admin } from '@/api/client'
+import { useApi } from '@/hooks/useApi'
+import {
+  assessPassword,
+  generateTempPassword,
+  isValidEmail,
+  MIN_PASSWORD_LENGTH,
+  ROLE_LABEL,
+} from '@/lib/roles'
 import { Avatar, EmptyState, MetricCard, PageHeader } from '@/components/shared'
 import { Badge, Button, Card, Dialog, Input, Label, Select, Tabs } from '@/components/ui'
 import { cn, formatDateTime, relativeTime } from '@/lib/utils'
@@ -29,21 +36,16 @@ import { cn, formatDateTime, relativeTime } from '@/lib/utils'
  * removal.
  */
 export default function UserManagement() {
-  const account = useAppStore((s) => s.getCurrentAccount())
-  const accounts = useAppStore((s) => s.accounts)
-  const candidates = useAppStore((s) => s.candidates)
-  const addStaffAccount = useAppStore((s) => s.addStaffAccount)
-  const updateAccount = useAppStore((s) => s.updateAccount)
-  const setAccountPassword = useAppStore((s) => s.setAccountPassword)
-  const setAccountStatus = useAppStore((s) => s.setAccountStatus)
-  const deleteAccount = useAppStore((s) => s.deleteAccount)
+  const account = useAppStore((s) => s.profile)
+  const users = useApi(() => admin.users(), [])
+  const accounts = React.useMemo(() => users.data?.users ?? [], [users.data])
 
   const [tab, setTab] = React.useState<'staff' | 'candidates'>('staff')
   const [query, setQuery] = React.useState('')
   const [addOpen, setAddOpen] = React.useState(false)
-  const [editing, setEditing] = React.useState<Account | null>(null)
-  const [resetting, setResetting] = React.useState<Account | null>(null)
-  const [removing, setRemoving] = React.useState<Account | null>(null)
+  const [editing, setEditing] = React.useState<Profile | null>(null)
+  const [resetting, setResetting] = React.useState<Profile | null>(null)
+  const [removing, setRemoving] = React.useState<Profile | null>(null)
   const [banner, setBanner] = React.useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
 
   const isAdmin = account?.role === 'admin'
@@ -129,7 +131,12 @@ export default function UserManagement() {
         />
       </div>
 
-      {visible.length === 0 ? (
+      {users.loading && !users.data ? (
+        <Card className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" />
+          Loading accounts…
+        </Card>
+      ) : visible.length === 0 ? (
         <EmptyState
           title="No accounts match"
           description={
@@ -146,7 +153,7 @@ export default function UserManagement() {
                 <tr>
                   <th>User</th>
                   <th>Role</th>
-                  {tab === 'candidates' && <th>Candidate ID</th>}
+                  {tab === 'candidates' && <th>Candidate record</th>}
                   <th>Status</th>
                   <th>Last sign-in</th>
                   <th>Created</th>
@@ -155,7 +162,6 @@ export default function UserManagement() {
               </thead>
               <tbody>
                 {visible.map((a) => {
-                  const linked = candidates.find((c) => c.id === a.candidateId)
                   const isSelf = a.id === account.id
                   return (
                     <tr key={a.id}>
@@ -178,7 +184,7 @@ export default function UserManagement() {
                       </td>
                       {tab === 'candidates' && (
                         <td className="font-mono text-[12px] text-navy-700">
-                          {linked?.candidateId ?? '—'}
+                          {a.candidateId ? 'Linked' : '—'}
                         </td>
                       )}
                       <td>
@@ -214,16 +220,18 @@ export default function UserManagement() {
                             size="sm"
                             disabled={isSelf}
                             onClick={() => {
-                              const r = setAccountStatus(
-                                a.id,
-                                a.status === 'active' ? 'disabled' : 'active',
-                              )
-                              flash(
-                                r.ok ? 'ok' : 'error',
-                                r.ok
-                                  ? `${a.name} ${a.status === 'active' ? 'disabled' : 're-enabled'}.`
-                                  : (r.message ?? 'Action failed.'),
-                              )
+                              void admin
+                                .updateUser(a.id, {
+                                  status: a.status === 'active' ? 'disabled' : 'active',
+                                })
+                                .then(() => {
+                                  flash(
+                                    'ok',
+                                    `${a.name} ${a.status === 'active' ? 'disabled' : 're-enabled'}.`,
+                                  )
+                                  users.refetch()
+                                })
+                                .catch((err: Error) => flash('error', err.message))
                             }}
                           >
                             {a.status === 'active' ? (
@@ -269,25 +277,31 @@ export default function UserManagement() {
         open={addOpen}
         onClose={() => setAddOpen(false)}
         onCreate={async (input) => {
-          const r = await addStaffAccount(input)
-          if (r.ok) {
+          try {
+            await admin.createUser(input)
             setAddOpen(false)
             flash('ok', `${input.name} can now sign in with the temporary password you set.`)
+            users.refetch()
+            return { ok: true }
+          } catch (err) {
+            return { ok: false, message: (err as Error).message }
           }
-          return r
         }}
       />
 
       <EditStaffDialog
         account={editing}
         onClose={() => setEditing(null)}
-        onSave={(id, patch) => {
-          const r = updateAccount(id, patch)
-          if (r.ok) {
+        onSave={async (id, patch) => {
+          try {
+            await admin.updateUser(id, patch)
             setEditing(null)
             flash('ok', 'Account updated.')
+            users.refetch()
+            return { ok: true }
+          } catch (err) {
+            return { ok: false, message: (err as Error).message }
           }
-          return r
         }}
       />
 
@@ -295,9 +309,14 @@ export default function UserManagement() {
         account={resetting}
         onClose={() => setResetting(null)}
         onReset={async (id, password) => {
-          const r = await setAccountPassword(id, password)
-          if (r.ok) flash('ok', 'Temporary password set. The user must change it at next sign-in.')
-          return r
+          try {
+            await admin.setPassword(id, password)
+            flash('ok', 'Temporary password set. The user must change it at next sign-in.')
+            users.refetch()
+            return { ok: true }
+          } catch (err) {
+            return { ok: false, message: (err as Error).message }
+          }
         }}
       />
 
@@ -315,9 +334,14 @@ export default function UserManagement() {
               variant="destructive"
               onClick={() => {
                 if (!removing) return
-                const r = deleteAccount(removing.id)
-                flash(r.ok ? 'ok' : 'error', r.ok ? 'Account removed.' : (r.message ?? 'Failed.'))
-                setRemoving(null)
+                void admin
+                  .deleteUser(removing.id)
+                  .then(() => {
+                    flash('ok', 'Account removed.')
+                    users.refetch()
+                  })
+                  .catch((err: Error) => flash('error', err.message))
+                  .finally(() => setRemoving(null))
               }}
             >
               Remove account
@@ -476,12 +500,12 @@ function EditStaffDialog({
   onClose,
   onSave,
 }: {
-  account: Account | null
+  account: Profile | null
   onClose: () => void
   onSave: (
     id: string,
-    patch: Partial<Pick<Account, 'name' | 'email' | 'role'>>,
-  ) => { ok: boolean; message?: string }
+    patch: Partial<Pick<Profile, 'name' | 'email' | 'role'>>,
+  ) => Promise<{ ok: boolean; message?: string }>
 }) {
   const [name, setName] = React.useState('')
   const [email, setEmail] = React.useState('')
@@ -514,12 +538,13 @@ function EditStaffDialog({
             onClick={() => {
               if (!name.trim()) return setError('Name is required')
               if (!isValidEmail(email)) return setError('Enter a valid email address')
-              const r = onSave(account.id, {
+              void onSave(account.id, {
                 name,
                 email,
                 role: role as Exclude<AccountRole, 'candidate'>,
+              }).then((r) => {
+                if (!r.ok) setError(r.message ?? 'Could not update the account.')
               })
-              if (!r.ok) setError(r.message ?? 'Could not update the account.')
             }}
           >
             Save changes
@@ -562,7 +587,7 @@ function ResetPasswordDialog({
   onClose,
   onReset,
 }: {
-  account: Account | null
+  account: Profile | null
   onClose: () => void
   onReset: (id: string, password: string) => Promise<{ ok: boolean; message?: string }>
 }) {

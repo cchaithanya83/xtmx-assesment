@@ -1,13 +1,11 @@
 import * as React from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { AlertTriangle, Flag, Headphones, ShieldAlert } from 'lucide-react'
-import type { Attempt, AudioAttemptTelemetry, FieldTelemetry, VerificationPrompt } from '@/types'
+import type { AudioAttemptTelemetry, AudioField, FieldTelemetry } from '@/types'
 import { getAssignment } from '@/data/tasks'
 import { SegmentSpeechEngine, resolveTTSProvider } from '@/audio/tts'
-import { scoreTask2 } from '@/engine/scoring'
-import { buildTask2Feedback } from '@/engine/feedback'
-import { classifyRisk } from '@/engine/certification'
 import { useAppStore } from '@/store/appStore'
+import type { PublicScenario } from '@/api/client'
 import { AssessmentShell, DesktopRecommendedNotice } from '@/components/layout/AppShell'
 import { AudioPlayer } from '@/components/audio/AudioPlayer'
 import { CaptureSummary, ScenarioForm } from '@/components/audio/ScenarioForm'
@@ -16,6 +14,9 @@ import { DifficultyBadge } from '@/components/shared'
 import { Badge, Button, Card, Dialog, Progress } from '@/components/ui'
 import { clipboardGuards, useIntegrityMonitor } from '@/hooks/useIntegrityMonitor'
 import { cn, formatDuration } from '@/lib/utils'
+
+/** A verification prompt as the API returns it — no correct answer attached. */
+type ClientPrompt = PublicScenario['verificationPrompts'][number]
 
 /**
  * Task 2 assessment runner.
@@ -34,8 +35,6 @@ export default function Task2Runner() {
   const settings = useAppStore((s) => s.settings)
   const submitAttempt = useAppStore((s) => s.submitAttempt)
   const abandonSession = useAppStore((s) => s.abandonSession)
-  const publishLive = useAppStore((s) => s.publishLive)
-  const clearLive = useAppStore((s) => s.clearLive)
 
   const assignment = getAssignment(2, assignmentId)
   const scenario = activeSession?.scenario
@@ -58,6 +57,7 @@ export default function Task2Runner() {
   const [replaysUsed, setReplaysUsed] = React.useState(0)
   const [confirmExit, setConfirmExit] = React.useState(false)
   const [submitting, setSubmitting] = React.useState(false)
+  const [submitError, setSubmitError] = React.useState<string | null>(null)
   /* Set synchronously at the start of submission. `submitting` state is not
      reliable here: the Zustand write that clears `activeSession` can trigger a
      render before the React state update is flushed, which would let the guard
@@ -65,7 +65,7 @@ export default function Task2Runner() {
   const submittedRef = React.useRef(false)
   const [ttsWarning, setTtsWarning] = React.useState<string | null>(null)
 
-  const [activePrompt, setActivePrompt] = React.useState<VerificationPrompt | null>(null)
+  const [activePrompt, setActivePrompt] = React.useState<ClientPrompt | null>(null)
   const [answeredPrompts, setAnsweredPrompts] = React.useState<
     AudioAttemptTelemetry['verificationAnswers']
   >([])
@@ -77,6 +77,8 @@ export default function Task2Runner() {
   const firedPromptsRef = React.useRef<Set<string>>(new Set())
   const progressRef = React.useRef(0)
   const startRef = React.useRef<number | null>(null)
+  /** Mirrors `values` so a timeout submission always sends the latest capture. */
+  const valuesRef = React.useRef<Record<string, string>>({})
 
   const integrity = useIntegrityMonitor({
     enabled: Boolean(isCertification),
@@ -100,7 +102,7 @@ export default function Task2Runner() {
     const init: Record<string, FieldTelemetry> = {}
     for (const field of scenario.fields) {
       init[field.key] = {
-        key: field.key,
+        key: field.key as FieldTelemetry['key'],
         firstInputAt: null,
         lastEditAt: null,
         timeOnFieldMs: 0,
@@ -114,6 +116,7 @@ export default function Task2Runner() {
       }
     }
     telemetryRef.current = init
+    valuesRef.current = {}
     setValues({})
   }, [scenario])
 
@@ -237,6 +240,7 @@ export default function Task2Runner() {
       t.finalValue = value
       t.skipped = value.trim() === ''
     }
+    valuesRef.current = { ...valuesRef.current, [key]: value }
     setValues((prev) => ({ ...prev, [key]: value }))
   }, [])
 
@@ -247,7 +251,8 @@ export default function Task2Runner() {
       {
         promptId: activePrompt.id,
         answer,
-        correct: answer === activePrompt.correctAnswer,
+        // Graded server-side; this flag is ignored by the API.
+        correct: false,
         answeredAtProgress: progressRef.current,
       },
     ])
@@ -258,147 +263,58 @@ export default function Task2Runner() {
     }
   }
 
-  /* ---- Live feed to trainer monitoring ---------------------------------- */
-  const candidateId = activeSession?.candidateId
-  const candidateName = useAppStore((s) =>
-    candidateId ? (s.candidates.find((c) => c.id === candidateId)?.fullName ?? '') : '',
-  )
-
-  React.useEffect(() => {
-    if (!started || !candidateId || !scenario || submitting) return
-    const id = window.setInterval(() => {
-      const filled = scenario.fields.filter((f) => (values[f.key] ?? '').trim()).length
-      const captureRatio = filled / (scenario.fields.length || 1)
-      // Provisional score during the attempt — capture progress only, since
-      // correctness must not be evaluated (or leaked) before submission.
-      const provisional = Math.round(captureRatio * 100)
-      publishLive({
-        candidateId,
-        candidateName,
-        taskId: 2,
-        assignmentId,
-        wpm: 0,
-        accuracy: 0,
-        progress: Math.round(captureRatio * 100),
-        currentScore: provisional,
-        risk: classifyRisk(provisional, provisional >= settings.passingScore, 0),
-        updatedAt: new Date().toISOString(),
-      })
-    }, 2500)
-    return () => window.clearInterval(id)
-  }, [
-    started,
-    candidateId,
-    candidateName,
-    assignmentId,
-    scenario,
-    values,
-    settings.passingScore,
-    publishLive,
-    submitting,
-  ])
-
   /* ---- Submission ------------------------------------------------------- */
+  /**
+   * Submits the captured answers and the interaction telemetry.
+   *
+   * No score is computed here and none is sent. The server holds the answer key
+   * for this session, re-grades the verification prompts itself, and returns
+   * the finished attempt.
+   */
   const handleSubmit = React.useCallback(
-    (reason: 'manual' | 'time') => {
-      if (submitting || !activeSession || !scenario) return
+    async (reason: 'manual' | 'time') => {
+      if (submittedRef.current || !activeSession || !scenario) return
       submittedRef.current = true
       setSubmitting(true)
+      setSubmitError(null)
       engineRef.current?.stop()
 
-      const totalMs =
-        startRef.current !== null ? performance.now() - startRef.current : sessionElapsed * 1000
-
-      // Finalise telemetry: mark which spoken corrections were actually applied.
-      const fields: Record<string, FieldTelemetry> = {}
-      for (const [key, t] of Object.entries(telemetryRef.current)) {
-        const field = scenario.fields.find((f) => f.key === key)
-        const applied =
-          field?.supersededValue !== undefined
-            ? t.finalValue.trim() !== '' &&
-              t.finalValue.trim().toLowerCase() !== field.supersededValue.trim().toLowerCase()
-            : undefined
-        fields[key] = { ...t, appliedSpokenCorrection: applied }
-      }
-
-      const telemetry: AudioAttemptTelemetry = {
-        fields,
+      const telemetry: Partial<AudioAttemptTelemetry> = {
+        fields: telemetryRef.current,
         fieldNavigationCount: navCountRef.current,
         totalPauseMs: 0,
-        totalCompletionMs: Math.round(totalMs),
         verificationAnswers: answeredPrompts,
         blurCount: integrity.log.blurCount,
         pasteAttempts: integrity.log.pasteAttempts,
         replaysUsed,
       }
 
-      const result = scoreTask2(scenario, values, telemetry, settings, isFinal)
-      const feedback = buildTask2Feedback(
-        result,
-        settings,
-        assignmentId,
-        scenario.corrections.length > 0,
-        scenario.verificationPrompts.length,
-      )
-
-      const attempt: Omit<Attempt, 'id'> = {
-        candidateId: activeSession.candidateId,
-        taskId: 2,
-        assignmentId,
-        attemptNumber: activeSession.attemptNumber,
-        mode: activeSession.mode,
-        startedAt: activeSession.startedAt,
-        completedAt: new Date().toISOString(),
-        score: result.score,
-        passed: result.passed,
-        dataAccuracy: result.dataAccuracy,
-        criticalDataAccuracy: result.criticalDataAccuracy,
-        multitaskingScore: result.multitaskingScore,
-        correctionScore: result.correctionScore,
-        listeningScore: result.listeningScore,
-        totalKeystrokes: Object.values(fields).reduce((n, f) => n + f.finalValue.length, 0),
-        incorrectKeystrokes: 0,
-        backspaces: Object.values(fields).reduce((n, f) => n + f.corrections, 0),
-        completionPercentage: result.completionPercentage,
-        breakdown: result.breakdown,
-        gates: result.gates,
-        feedback,
-        audioTelemetry: telemetry,
-        scenarioId: scenario.id,
-        integrity: {
-          ...integrity.log,
-          events: [
-            ...integrity.log.events,
-            { at: new Date().toISOString(), type: `submitted:${reason}` },
-          ],
-        },
+      try {
+        await submitAttempt({
+          sessionId: activeSession.sessionId,
+          answers: valuesRef.current,
+          telemetry,
+          integrity: {
+            ...integrity.log,
+            events: [
+              ...integrity.log.events,
+              { at: new Date().toISOString(), type: `submitted:${reason}` },
+            ],
+          },
+        })
+        navigate('/result', { replace: true })
+      } catch (err) {
+        submittedRef.current = false
+        setSubmitting(false)
+        setSubmitError((err as Error).message)
       }
-
-      clearLive(activeSession.candidateId)
-      submitAttempt(attempt)
-      navigate('/result', { replace: true })
     },
-    [
-      submitting,
-      activeSession,
-      scenario,
-      sessionElapsed,
-      answeredPrompts,
-      integrity.log,
-      replaysUsed,
-      values,
-      settings,
-      isFinal,
-      assignmentId,
-      clearLive,
-      submitAttempt,
-      navigate,
-    ],
+    [activeSession, scenario, answeredPrompts, integrity.log, replaysUsed, submitAttempt, navigate],
   )
 
   React.useEffect(() => {
-    if (started && remaining <= 0 && !submitting) handleSubmit('time')
-  }, [started, remaining, submitting, handleSubmit])
+    if (started && remaining <= 0 && !submittedRef.current) void handleSubmit('time')
+  }, [started, remaining, handleSubmit])
 
   const begin = () => {
     startRef.current = performance.now()
@@ -415,6 +331,19 @@ export default function Task2Runner() {
   }
 
   if (!activeSession || activeSession.taskId !== 2 || !scenario) return null
+
+  // `ScenarioForm` renders from the full field shape; the server withholds
+  // `expected`, so fill it with an empty string the UI never reads.
+  const formFields: AudioField[] = scenario.fields.map((f) => ({
+    key: f.key as AudioField['key'],
+    label: f.label,
+    type: f.type as AudioField['type'],
+    expected: '',
+    critical: f.critical,
+    placeholder: f.placeholder,
+    options: f.options,
+    hint: f.hint,
+  }))
 
   const guards = clipboardGuards(
     Boolean(isCertification) && settings.blockPaste,
@@ -464,9 +393,9 @@ export default function Task2Runner() {
           duration={scenario.estimatedDurationSeconds}
           timeLimit={assignment.timeLimitSeconds}
           wpm={scenario.wordsPerMinute}
-          corrections={scenario.corrections.length}
+          corrections={scenario.hasCorrections ? 1 : 0}
           prompts={scenario.verificationPrompts.length}
-          outOfOrder={scenario.level >= 3}
+          outOfOrder={scenario.outOfOrder}
           replayAllowed={replayAllowed}
           pauseAllowed={pauseAllowed}
           mode={activeSession.mode}
@@ -511,7 +440,7 @@ export default function Task2Runner() {
               <h3 className="mb-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                 Session status
               </h3>
-              <CaptureSummary fields={scenario.fields} values={values} className="mb-3" />
+              <CaptureSummary fields={formFields} values={values} className="mb-3" />
               <div className="space-y-2">
                 <div>
                   <div className="mb-1 flex items-baseline justify-between text-[11px] text-muted-foreground">
@@ -555,7 +484,18 @@ export default function Task2Runner() {
                 </p>
               )}
 
-              <Button className="mt-4 w-full" onClick={() => handleSubmit('manual')}>
+              {submitError && (
+                <p className="mt-2 flex items-start gap-1.5 rounded border border-red-200 bg-red-50 px-2 py-1.5 text-[11px] text-red-900">
+                  <AlertTriangle className="mt-0.5 size-3 shrink-0" />
+                  {submitError} Your capture is still here — press Submit to try again.
+                </p>
+              )}
+
+              <Button
+                className="mt-4 w-full"
+                disabled={submitting}
+                onClick={() => void handleSubmit('manual')}
+              >
                 <Flag className="size-4" />
                 Submit capture
               </Button>
@@ -568,15 +508,15 @@ export default function Task2Runner() {
               <h2 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                 Verification form
               </h2>
-              {scenario.level >= 3 && (
+              {scenario.outOfOrder && (
                 <Badge variant="warning">Information may arrive out of order</Badge>
               )}
-              {scenario.corrections.length > 0 && (
+              {scenario.hasCorrections && (
                 <Badge variant="warning">Listen for spoken corrections</Badge>
               )}
             </div>
             <ScenarioForm
-              fields={scenario.fields}
+              fields={formFields}
               values={values}
               onChange={onChangeField}
               onFocusField={onFocusField}

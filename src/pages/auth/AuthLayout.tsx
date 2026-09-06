@@ -5,7 +5,7 @@ import logoUrl from '@/assests/image.png'
 import { ORG_NAME } from '@/data/settings'
 import { TOTAL_ASSIGNMENTS } from '@/data/tasks'
 import { useSettings } from '@/store/appStore'
-import { assessPassword, type PasswordStrength } from '@/auth/crypto'
+import { assessPassword, type PasswordStrength } from '@/lib/roles'
 import { Card, Input, Label } from '@/components/ui'
 import { cn } from '@/lib/utils'
 
@@ -205,7 +205,7 @@ export function PasswordMeter({ password }: { password: string }) {
       </div>
       {strength.problems.length > 0 && (
         <ul className="mt-1.5 space-y-0.5">
-          {strength.problems.map((p) => (
+          {strength.problems.map((p: string) => (
             <li key={p} className="text-[11px] text-amber-700">
               · {p}
             </li>

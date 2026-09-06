@@ -2,7 +2,7 @@ import * as React from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Loader2, LogIn } from 'lucide-react'
 import { useAppStore } from '@/store/appStore'
-import { isValidEmail } from '@/auth/crypto'
+import { isValidEmail } from '@/lib/roles'
 import { Button, Input } from '@/components/ui'
 import { AuthLayout, Field, FormError, PasswordInput } from './AuthLayout'
 
@@ -34,27 +34,28 @@ export default function SignIn() {
     if (Object.keys(next).length) return
 
     setBusy(true)
-    const result = await signIn(email, password)
-    setBusy(false)
+    try {
+      const profile = await signIn(email, password)
 
-    if (!result.ok || !result.account) {
-      setFormError(result.message ?? 'Sign in failed.')
-      return
-    }
+      // A temporary password issued by an admin must be replaced before the
+      // account can be used for anything else.
+      if (profile.mustChangePassword) {
+        navigate('/change-password', { replace: true, state: { forced: true } })
+        return
+      }
 
-    // A temporary password issued by an admin must be replaced before the
-    // account can be used for anything else.
-    if (result.account.mustChangePassword) {
-      navigate('/change-password', { replace: true, state: { forced: true } })
-      return
-    }
-
-    if (result.account.role === 'candidate') {
-      navigate(from && from.startsWith('/') && !from.startsWith('/trainer') ? from : '/dashboard', {
-        replace: true,
-      })
-    } else {
-      navigate('/trainer', { replace: true })
+      if (profile.role === 'candidate') {
+        navigate(
+          from && from.startsWith('/') && !from.startsWith('/trainer') ? from : '/dashboard',
+          { replace: true },
+        )
+      } else {
+        navigate('/trainer', { replace: true })
+      }
+    } catch (err) {
+      setFormError((err as Error).message)
+    } finally {
+      setBusy(false)
     }
   }
 

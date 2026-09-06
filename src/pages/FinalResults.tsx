@@ -1,6 +1,9 @@
+import * as React from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Award, Download, Headphones, Keyboard, TrendingUp } from 'lucide-react'
+import type { AssignmentProgress, Attempt } from '@/types'
 import { TASKS } from '@/data/tasks'
+import { me } from '@/api/client'
 import { useAppStore, useCurrentCandidate } from '@/store/appStore'
 import { findProgress } from '@/engine/certification'
 import { AssignmentScoreChart, AttemptTrendChart, CompetencyRadar } from '@/components/charts'
@@ -22,18 +25,20 @@ import { cn, downloadBlob, round, toCsv } from '@/lib/utils'
 export default function FinalResults() {
   const navigate = useNavigate()
   const candidate = useCurrentCandidate()
-  const getProgress = useAppStore((s) => s.getProgress)
-  const getResult = useAppStore((s) => s.getResult)
-  const getAttempts = useAppStore((s) => s.getAttempts)
+  const progress = useAppStore((s) => s.progress)
+  const result = useAppStore((s) => s.result)
+  const refreshProgress = useAppStore((s) => s.refreshProgress)
   const settings = useAppStore((s) => s.settings)
+  const [attempts, setAttempts] = React.useState<Attempt[]>([])
 
-  if (!candidate) return null
+  React.useEffect(() => {
+    void refreshProgress()
+    me.attempts().then((d) => setAttempts(d.attempts))
+  }, [refreshProgress])
 
-  const progress = getProgress(candidate.id)
-  const result = getResult(candidate.id)
-  const attempts = getAttempts(candidate.id)
+  if (!candidate || !result) return null
 
-  const chartData = progress.map((p) => ({
+  const chartData = progress.map((p: AssignmentProgress) => ({
     label: `T${p.taskId}A${p.assignmentId}`,
     score: p.bestScore ?? 0,
     passed: p.status === 'passed',
@@ -50,7 +55,7 @@ export default function FinalResults() {
   ].map((d) => ({ ...d, value: round(d.value, 1) }))
 
   const exportCsv = () => {
-    const rows = attempts.map((a) => ({
+    const rows = attempts.map((a: Attempt) => ({
       candidate: candidate.fullName,
       candidateId: candidate.candidateId,
       task: a.taskId,
@@ -218,13 +223,13 @@ export default function FinalResults() {
                     const p = findProgress(progress, task.id, assignment.id)
                     const best = attempts
                       .filter(
-                        (a) =>
+                        (a: Attempt) =>
                           a.taskId === task.id &&
                           a.assignmentId === assignment.id &&
                           a.mode === 'certification',
                       )
-                      .reduce<(typeof attempts)[number] | null>(
-                        (acc, r) => (!acc || r.score > acc.score ? r : acc),
+                      .reduce<Attempt | null>(
+                        (acc: Attempt | null, r: Attempt) => (!acc || r.score > acc.score ? r : acc),
                         null,
                       )
                     return (
@@ -295,7 +300,7 @@ export default function FinalResults() {
             <div className="flex items-center gap-3 border-t border-border px-5 py-3">
               <Progress
                 value={
-                  (progress.filter((p) => p.taskId === task.id && p.status === 'passed').length /
+                  (progress.filter((p: AssignmentProgress) => p.taskId === task.id && p.status === 'passed').length /
                     task.assignments.length) *
                   100
                 }
@@ -303,7 +308,7 @@ export default function FinalResults() {
                 size="sm"
               />
               <span className="metric-value shrink-0 text-xs text-navy-700">
-                {progress.filter((p) => p.taskId === task.id && p.status === 'passed').length}/
+                {progress.filter((p: AssignmentProgress) => p.taskId === task.id && p.status === 'passed').length}/
                 {task.assignments.length}
               </span>
             </div>

@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Loader2, UserPlus } from 'lucide-react'
 import { useAppStore } from '@/store/appStore'
 import { BATCHES, LOCATIONS, TRAINERS } from '@/data/pools'
-import { assessPassword, isValidEmail, MIN_PASSWORD_LENGTH } from '@/auth/crypto'
+import { assessPassword, isValidEmail, MIN_PASSWORD_LENGTH } from '@/lib/roles'
 import { Button, Input, Select } from '@/components/ui'
 import { AuthLayout, Field, FormError, PasswordInput, PasswordMeter } from './AuthLayout'
 
@@ -16,7 +16,7 @@ import { AuthLayout, Field, FormError, PasswordInput, PasswordMeter } from './Au
  */
 export default function SignUp() {
   const navigate = useNavigate()
-  const signUpCandidate = useAppStore((s) => s.signUpCandidate)
+  const register = useAppStore((s) => s.register)
 
   const [form, setForm] = React.useState({
     fullName: '',
@@ -57,30 +57,27 @@ export default function SignUp() {
     if (Object.keys(next).length) return
 
     setBusy(true)
-    const result = await signUpCandidate({
-      fullName: form.fullName,
-      candidateId: form.candidateId,
-      email: form.email,
-      password: form.password,
-      batch: form.batch,
-      location: form.location,
-      trainerName: form.trainerName,
-    })
-    setBusy(false)
-
-    if (!result.ok) {
-      // Map the failure back onto the offending field where we can.
-      if (result.error === 'email-taken') {
-        setErrors({ email: result.message ?? 'Email already registered' })
-      } else if (result.error === 'candidate-id-taken') {
-        setErrors({ candidateId: result.message ?? 'Candidate ID already registered' })
-      } else {
-        setFormError(result.message ?? 'Could not create your account.')
-      }
-      return
+    try {
+      await register({
+        fullName: form.fullName,
+        candidateId: form.candidateId,
+        email: form.email,
+        password: form.password,
+        batch: form.batch,
+        location: form.location,
+        trainerName: form.trainerName,
+      })
+      navigate('/dashboard', { replace: true })
+    } catch (err) {
+      // Map the failure back onto the offending field where the server told us.
+      const code = (err as { code?: string }).code
+      const message = (err as Error).message
+      if (code === 'email-taken') setErrors({ email: message })
+      else if (code === 'candidate-id-taken') setErrors({ candidateId: message })
+      else setFormError(message)
+    } finally {
+      setBusy(false)
     }
-
-    navigate('/dashboard', { replace: true })
   }
 
   return (

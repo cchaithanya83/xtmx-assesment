@@ -1,0 +1,10 @@
+# Supabase CLI project configuration.
+# `project_id` is set by `supabase link`; the values below matter for
+# `supabase functions serve` and `supabase functions deploy`.
+
+[functions.api]
+# The API performs its own JWT verification (see _server/auth.ts) because two
+# routes must be reachable without a session: candidate registration and the
+# one-time administrator bootstrap. Every other route calls `authenticate()`
+# before touching data.
+verify_jwt = false

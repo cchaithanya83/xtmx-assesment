@@ -1,219 +1,194 @@
 import * as React from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Activity, Radio } from 'lucide-react'
-import { useAppStore, useRoster } from '@/store/appStore'
-import { Avatar, EmptyState, MetricCard, PageHeader, RiskBadge } from '@/components/shared'
-import { Badge, Card, Progress } from '@/components/ui'
-import { cn, relativeTime, round } from '@/lib/utils'
+import { Activity, Loader2, Radio, RefreshCw } from 'lucide-react'
+import { trainer } from '@/api/client'
+import { usePolledApi } from '@/hooks/useApi'
+import { getAssignment } from '@/data/tasks'
+import { Avatar, EmptyState, MetricCard, PageHeader } from '@/components/shared'
+import { Badge, Button, Card, Progress } from '@/components/ui'
+import { cn, formatDuration, relativeTime } from '@/lib/utils'
+
+/** How often the live view re-queries the API. */
+const POLL_MS = 5000
 
 /**
  * Live assessment monitoring.
  *
- * Assessment runners publish a `LiveSession` every couple of seconds while a
- * candidate is mid-attempt; this view renders whatever is currently in flight.
- * Sessions clear themselves on submit or abandon.
+ * Backed by real server state: every assessment session that has been issued
+ * and not yet submitted. Unlike the previous in-browser implementation this
+ * shows candidates working on *any* machine, which is what a training room
+ * actually needs.
  *
- * ---------------------------------------------------------------------------
- * FUTURE: multi-machine live view
- * ---------------------------------------------------------------------------
- * Live sessions are in-memory and therefore scoped to this browser. To monitor a
- * whole training room from a trainer's own machine, publish the same
- * `LiveSession` payload to a Supabase Realtime channel from
- * `appStore.publishLive()` and subscribe here — no other change is required,
- * because this component only reads `liveSessions`.
+ * It polls rather than subscribing. A websocket would add a second transport
+ * and a second failure mode for a screen whose data changes every few seconds
+ * at most; a 5-second poll that pauses on a hidden tab is the better trade.
  */
 export default function TrainerLive() {
   const navigate = useNavigate()
-  const liveSessions = useAppStore((s) => s.liveSessions)
-  const settings = useAppStore((s) => s.settings)
-  const rows = useRoster()
+  const live = usePolledApi(() => trainer.live(), POLL_MS, [])
 
-  // Re-render on a timer so "updated Xs ago" stays honest.
-  const [, force] = React.useState(0)
+  // Re-render on a timer so the elapsed columns stay honest between polls.
+  const [, tick] = React.useState(0)
   React.useEffect(() => {
-    const id = window.setInterval(() => force((n) => n + 1), 1000)
+    const id = window.setInterval(() => tick((n) => n + 1), 1000)
     return () => window.clearInterval(id)
   }, [])
 
-  const recentlyActive = React.useMemo(
-    () =>
-      [...rows]
-        .filter((r) => !r.live)
-        .sort((a, b) => b.candidate.lastActiveAt.localeCompare(a.candidate.lastActiveAt))
-        .slice(0, 8),
-    [rows],
-  )
+  const sessions = live.data?.sessions ?? []
+  const now = Date.now()
 
   return (
     <div className="mx-auto max-w-[1500px]">
       <PageHeader
         eyebrow="Trainer / Admin portal"
         title="Live Assessment Monitoring"
-        description="Candidates currently taking an assessment, with live speed, accuracy and provisional score."
+        description="Assessments currently open, across every machine. Refreshes automatically."
         actions={
-          <span className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-semibold text-navy-800">
-            <span
-              className={cn(
-                'inline-flex size-2 rounded-full',
-                liveSessions.length ? 'animate-pulse-soft bg-brand-600' : 'bg-navy-200',
+          <div className="flex items-center gap-2">
+            <span className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-semibold text-navy-800">
+              <span
+                className={cn(
+                  'inline-flex size-2 rounded-full',
+                  sessions.length ? 'animate-pulse-soft bg-brand-600' : 'bg-navy-200',
+                )}
+              />
+              {sessions.length} active
+            </span>
+            <Button variant="outline" size="sm" onClick={live.refetch} disabled={live.loading}>
+              {live.loading ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <RefreshCw className="size-4" />
               )}
-            />
-            {liveSessions.length} active
-          </span>
+              Refresh
+            </Button>
+          </div>
         }
       />
 
+      {live.error && (
+        <p
+          role="alert"
+          className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-800"
+        >
+          {live.error}
+        </p>
+      )}
+
       <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <MetricCard label="Active sessions" value={liveSessions.length} icon={<Radio className="size-3.5" />} />
         <MetricCard
-          label="Avg live WPM"
-          value={
-            liveSessions.filter((l) => l.wpm > 0).length
-              ? round(
-                  liveSessions.filter((l) => l.wpm > 0).reduce((n, l) => n + l.wpm, 0) /
-                    liveSessions.filter((l) => l.wpm > 0).length,
-                )
-              : '—'
-          }
+          label="Active sessions"
+          value={sessions.length}
+          icon={<Radio className="size-3.5" />}
         />
         <MetricCard
-          label="At risk now"
-          value={liveSessions.filter((l) => l.risk === 'danger' || l.risk === 'below-standard').length}
-          tone="danger"
+          label="Task 1 · typing"
+          value={sessions.filter((s) => s.taskId === 1).length}
         />
-        <MetricCard label="Cohort size" value={rows.length} />
+        <MetricCard
+          label="Task 2 · listening"
+          value={sessions.filter((s) => s.taskId === 2).length}
+        />
+        <MetricCard
+          label="Practice runs"
+          value={sessions.filter((s) => s.mode === 'practice').length}
+        />
       </div>
 
-      {liveSessions.length === 0 ? (
+      {sessions.length === 0 ? (
         <EmptyState
           icon={<Activity className="size-8" />}
           title="No assessments in progress"
-          description="Live rows appear here the moment a candidate begins an assignment on this machine. Recently active candidates are listed below."
+          description="A row appears here the moment any candidate starts an assignment, on any machine. This view refreshes every few seconds."
         />
       ) : (
-        <Card className="mb-5 overflow-hidden">
+        <Card className="overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="data-grid min-w-[900px]">
+            <table className="data-grid min-w-[960px]">
               <thead>
                 <tr>
                   <th>Candidate</th>
-                  <th>Live task</th>
-                  <th className="text-right">WPM</th>
-                  <th className="text-right">Accuracy</th>
-                  <th className="w-[180px]">Progress</th>
-                  <th className="text-right">Current score</th>
-                  <th>Risk</th>
-                  <th className="text-right">Updated</th>
+                  <th>Assignment</th>
+                  <th>Mode</th>
+                  <th className="text-right">Attempt</th>
+                  <th className="w-[200px]">Time used</th>
+                  <th className="text-right">Started</th>
                 </tr>
               </thead>
               <tbody>
-                {liveSessions.map((session) => (
-                  <tr
-                    key={session.candidateId}
-                    className="cursor-pointer"
-                    onClick={() => navigate(`/trainer/candidate/${session.candidateId}`)}
-                  >
-                    <td>
-                      <div className="flex items-center gap-2.5">
-                        <Avatar name={session.candidateName || 'Candidate'} />
-                        <div>
-                          <p className="flex items-center gap-1.5 text-[13px] font-semibold text-navy-900">
-                            {session.candidateName || 'Candidate'}
-                            <span className="inline-flex size-1.5 animate-pulse-soft rounded-full bg-brand-600" />
-                          </p>
-                          <p className="text-[11px] text-muted-foreground">In assessment</p>
+                {sessions.map((s) => {
+                  const assignment = getAssignment(s.taskId, s.assignmentId)
+                  const elapsed = (now - new Date(s.startedAt).getTime()) / 1000
+                  const ratio = Math.min(100, (elapsed / assignment.timeLimitSeconds) * 100)
+                  return (
+                    <tr
+                      key={s.sessionId}
+                      className="cursor-pointer"
+                      onClick={() => navigate(`/trainer/candidate/${s.candidateId}`)}
+                    >
+                      <td>
+                        <div className="flex items-center gap-2.5">
+                          <Avatar name={s.candidateName} />
+                          <div className="min-w-0">
+                            <p className="flex items-center gap-1.5 text-[13px] font-semibold text-navy-900">
+                              {s.candidateName}
+                              <span className="inline-flex size-1.5 shrink-0 animate-pulse-soft rounded-full bg-brand-600" />
+                            </p>
+                            <p className="truncate font-mono text-[11px] text-muted-foreground">
+                              {s.candidateCode} · {s.batch}
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td>
-                      <Badge variant="accent">
-                        T{session.taskId}-A{session.assignmentId}
-                      </Badge>
-                    </td>
-                    <td className="text-right">
-                      <span
-                        className={cn(
-                          'metric-value text-[13px]',
-                          session.taskId === 2
-                            ? 'text-navy-300'
-                            : session.wpm >= settings.minWpm
-                              ? 'text-emerald-700'
-                              : 'text-red-700',
-                        )}
-                      >
-                        {session.taskId === 2 ? '—' : session.wpm}
-                      </span>
-                    </td>
-                    <td className="text-right">
-                      <span
-                        className={cn(
-                          'metric-value text-[13px]',
-                          session.taskId === 2
-                            ? 'text-navy-300'
-                            : session.accuracy >= settings.minAccuracy
-                              ? 'text-emerald-700'
-                              : 'text-red-700',
-                        )}
-                      >
-                        {session.taskId === 2 ? '—' : `${round(session.accuracy)}%`}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="flex items-center gap-2">
-                        <Progress value={session.progress} tone="brand" size="sm" className="flex-1" />
-                        <span className="metric-value w-9 shrink-0 text-right text-[11px] text-navy-700">
-                          {round(session.progress)}%
-                        </span>
-                      </div>
-                    </td>
-                    <td className="text-right">
-                      <span className="metric-value text-[13px] text-navy-900">
-                        {round(session.currentScore)}
-                      </span>
-                    </td>
-                    <td>
-                      <RiskBadge risk={session.risk} />
-                    </td>
-                    <td className="text-right text-[11px] text-muted-foreground">
-                      {relativeTime(session.updatedAt)}
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="accent">
+                            T{s.taskId}-A{s.assignmentId}
+                          </Badge>
+                          <span className="hidden text-[13px] text-navy-800 xl:inline">
+                            {assignment.title}
+                          </span>
+                        </div>
+                      </td>
+                      <td>
+                        <Badge variant={s.mode === 'practice' ? 'muted' : 'outline'}>
+                          {s.mode === 'practice' ? 'Practice' : 'Certification'}
+                        </Badge>
+                      </td>
+                      <td className="text-right tabular font-mono text-[13px]">
+                        #{s.attemptNumber}
+                      </td>
+                      <td>
+                        <div className="flex items-center gap-2">
+                          <Progress
+                            value={ratio}
+                            tone={ratio > 85 ? 'red' : ratio > 65 ? 'amber' : 'brand'}
+                            size="sm"
+                            className="flex-1"
+                          />
+                          <span className="metric-value w-16 shrink-0 text-right text-[11px] text-navy-700">
+                            {formatDuration(elapsed)}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="text-right text-[11px] text-muted-foreground">
+                        {relativeTime(s.startedAt)}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
         </Card>
       )}
 
-      {/* ---- Recently active ---- */}
-      <h2 className="mb-2.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-        Recently active candidates
-      </h2>
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        {recentlyActive.map((row) => (
-          <button
-            key={row.candidate.id}
-            onClick={() => navigate(`/trainer/candidate/${row.candidate.id}`)}
-            className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5 text-left transition-colors hover:border-brand-300 hover:bg-brand-50/30"
-          >
-            <Avatar name={row.candidate.fullName} />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[13px] font-semibold text-navy-900">
-                {row.candidate.fullName}
-              </span>
-              <span className="block truncate text-[11px] text-muted-foreground">
-                {row.currentTaskId
-                  ? `T${row.currentTaskId}-A${row.currentAssignmentId}`
-                  : 'Complete'}{' '}
-                · {relativeTime(row.candidate.lastActiveAt)}
-              </span>
-            </span>
-            <span className="metric-value shrink-0 text-sm text-navy-900">
-              {round(row.result.finalScore)}
-            </span>
-          </button>
-        ))}
-      </div>
+      <p className="mt-4 rounded-md border border-border bg-muted/40 px-4 py-3 text-[13px] leading-relaxed text-navy-700">
+        <strong className="font-semibold">What this shows.</strong> An assessment session is created
+        when a candidate starts an assignment and closed when they submit. Live scores are
+        deliberately absent: an attempt is graded on submission, and showing a provisional score
+        would mean grading partial work on the server for every poll.
+      </p>
     </div>
   )
 }

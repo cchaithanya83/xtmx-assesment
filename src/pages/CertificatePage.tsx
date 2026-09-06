@@ -29,17 +29,19 @@ const COMPETENCIES = [
 export default function CertificatePage() {
   const navigate = useNavigate()
   const candidate = useCurrentCandidate()
-  const getResult = useAppStore((s) => s.getResult)
-  const getCertification = useAppStore((s) => s.getCertification)
+  const result = useAppStore((s) => s.result)
+  const certification = useAppStore((s) => s.certification)
+  const refreshProgress = useAppStore((s) => s.refreshProgress)
+
+  React.useEffect(() => {
+    void refreshProgress()
+  }, [refreshProgress])
 
   const sheetRef = React.useRef<HTMLDivElement | null>(null)
   const [generating, setGenerating] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
-  if (!candidate) return null
-
-  const result = getResult(candidate.id)
-  const certification = getCertification(candidate.id)
+  if (!candidate || !result) return null
 
   const downloadPdf = async () => {
     if (!sheetRef.current || !certification) return

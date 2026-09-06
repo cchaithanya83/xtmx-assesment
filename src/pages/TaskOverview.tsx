@@ -1,3 +1,4 @@
+import * as React from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   CheckCircle2,
@@ -31,24 +32,40 @@ export default function TaskOverview() {
   const navigate = useNavigate()
 
   const candidate = useCurrentCandidate()
-  const getProgress = useAppStore((s) => s.getProgress)
-  const getResult = useAppStore((s) => s.getResult)
+  const progress = useAppStore((s) => s.progress)
+  const result = useAppStore((s) => s.result)
+  const refreshProgress = useAppStore((s) => s.refreshProgress)
   const startAssignment = useAppStore((s) => s.startAssignment)
   const settings = useAppStore((s) => s.settings)
+  const [launchError, setLaunchError] = React.useState<string | null>(null)
+  const [launching, setLaunching] = React.useState(false)
 
-  if (!candidate) return null
+  React.useEffect(() => {
+    void refreshProgress()
+  }, [refreshProgress])
+
+  if (!candidate || !result) return null
 
   const task = getTask(taskId)
-  const progress = getProgress(candidate.id)
-  const result = getResult(candidate.id)
-  const taskProgress = progress.filter((p) => p.taskId === taskId)
-  const passed = taskProgress.filter((p) => p.status === 'passed').length
+  const taskProgress = progress.filter((p: AssignmentProgress) => p.taskId === taskId)
+  const passed = taskProgress.filter((p: AssignmentProgress) => p.status === 'passed').length
   const average = taskId === 1 ? result.task1Average : result.task2Average
 
-  const launch = (assignmentId: number, mode: 'certification' | 'practice') => {
-    const session = startAssignment(taskId, assignmentId, mode)
-    if (!session) return // locked — guarded in the store
-    navigate(`/assessment/${taskId}/${assignmentId}`)
+  /**
+   * Starting an assignment is a server decision: the API issues the content and
+   * refuses if the assignment is locked or the retry limit is spent.
+   */
+  const launch = async (assignmentId: number, mode: 'certification' | 'practice') => {
+    setLaunchError(null)
+    setLaunching(true)
+    try {
+      await startAssignment(taskId, assignmentId, mode)
+      navigate(`/assessment/${taskId}/${assignmentId}`)
+    } catch (err) {
+      setLaunchError((err as Error).message)
+    } finally {
+      setLaunching(false)
+    }
   }
 
   return (
@@ -77,6 +94,15 @@ export default function TaskOverview() {
           </div>
         }
       />
+
+      {launchError && (
+        <p
+          role="alert"
+          className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-800"
+        >
+          {launchError}
+        </p>
+      )}
 
       <Progress
         value={(passed / task.assignments.length) * 100}
@@ -206,9 +232,9 @@ export default function TaskOverview() {
                 {/* ---- Actions ---- */}
                 <div className="flex shrink-0 flex-col gap-2 lg:w-[168px]">
                   <Button
-                    disabled={locked}
+                    disabled={locked || launching}
                     variant={isPassed ? 'outline' : 'default'}
-                    onClick={() => launch(assignment.id, 'certification')}
+                    onClick={() => void launch(assignment.id, 'certification')}
                   >
                     {locked ? (
                       <>
@@ -226,7 +252,7 @@ export default function TaskOverview() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => launch(assignment.id, 'practice')}
+                      onClick={() => void launch(assignment.id, 'practice')}
                     >
                       <Dumbbell className="size-3.5" />
                       Practice mode

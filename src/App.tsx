@@ -43,14 +43,14 @@ const UserManagement = React.lazy(() => import('@/pages/trainer/UserManagement')
  * the screen a deliberate act (which is also logged for integrity review).
  */
 export default function App() {
-  const hydrate = useAppStore((s) => s.hydrate)
-  const hydrated = useAppStore((s) => s.hydrated)
+  const bootstrap = useAppStore((s) => s.bootstrap)
+  const booting = useAppStore((s) => s.booting)
 
   React.useEffect(() => {
-    void hydrate()
-  }, [hydrate])
+    void bootstrap()
+  }, [bootstrap])
 
-  if (!hydrated) return <BootScreen />
+  if (booting) return <BootScreen />
 
   return (
     <React.Suspense fallback={<RouteFallback />}>
@@ -229,7 +229,7 @@ export default function App() {
 
 /** Sends an authenticated user to their own portal rather than a landing page. */
 function LandingRedirect() {
-  const account = useAppStore((s) => s.getCurrentAccount())
+  const account = useAppStore((s) => s.profile)
   if (!account) return <Navigate to="/signin" replace />
   if (account.mustChangePassword) {
     return <Navigate to="/change-password" replace state={{ forced: true }} />
@@ -238,7 +238,7 @@ function LandingRedirect() {
 }
 
 function RedirectIfSignedIn({ children }: { children: React.ReactNode }) {
-  const account = useAppStore((s) => s.getCurrentAccount())
+  const account = useAppStore((s) => s.profile)
   if (account && !account.mustChangePassword) {
     return <Navigate to={account.role === 'candidate' ? '/dashboard' : '/trainer'} replace />
   }
@@ -247,7 +247,7 @@ function RedirectIfSignedIn({ children }: { children: React.ReactNode }) {
 
 /** Requires an authenticated account whose role is `candidate`. */
 function RequireCandidate({ children }: { children: React.ReactNode }) {
-  const account = useAppStore((s) => s.getCurrentAccount())
+  const account = useAppStore((s) => s.profile)
   const location = useLocation()
 
   if (!account) {
@@ -269,7 +269,7 @@ function RequireStaff({
   children: React.ReactNode
   adminOnly?: boolean
 }) {
-  const account = useAppStore((s) => s.getCurrentAccount())
+  const account = useAppStore((s) => s.profile)
   const location = useLocation()
 
   if (!account) {

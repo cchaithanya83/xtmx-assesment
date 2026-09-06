@@ -2,7 +2,8 @@ import * as React from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { KeyRound, Loader2 } from 'lucide-react'
 import { useAppStore } from '@/store/appStore'
-import { assessPassword, MIN_PASSWORD_LENGTH } from '@/auth/crypto'
+import { auth } from '@/api/client'
+import { assessPassword, MIN_PASSWORD_LENGTH } from '@/lib/roles'
 import { Button } from '@/components/ui'
 import { AuthLayout, Field, FormError, PasswordInput, PasswordMeter } from './AuthLayout'
 
@@ -15,8 +16,8 @@ import { AuthLayout, Field, FormError, PasswordInput, PasswordMeter } from './Au
 export default function ChangePassword() {
   const navigate = useNavigate()
   const location = useLocation()
-  const account = useAppStore((s) => s.getCurrentAccount())
-  const changeOwnPassword = useAppStore((s) => s.changeOwnPassword)
+  const account = useAppStore((s) => s.profile)
+  const refreshMe = useAppStore((s) => s.refreshMe)
   const signOut = useAppStore((s) => s.signOut)
 
   const forced = Boolean((location.state as { forced?: boolean } | null)?.forced)
@@ -50,19 +51,21 @@ export default function ChangePassword() {
     if (Object.keys(problems).length) return
 
     setBusy(true)
-    const result = await changeOwnPassword(current, next)
-    setBusy(false)
-
-    if (!result.ok) {
-      setFormError(result.message ?? 'Could not change your password.')
-      return
+    try {
+      await auth.changePassword(current, next)
+      // The forced-change flag lives on the profile; refetch so the router
+      // guards stop redirecting back here.
+      await refreshMe()
+      setDone(true)
+      window.setTimeout(
+        () => navigate(account?.role === 'candidate' ? '/dashboard' : '/trainer', { replace: true }),
+        900,
+      )
+    } catch (err) {
+      setFormError((err as Error).message)
+    } finally {
+      setBusy(false)
     }
-
-    setDone(true)
-    window.setTimeout(
-      () => navigate(account?.role === 'candidate' ? '/dashboard' : '/trainer', { replace: true }),
-      900,
-    )
   }
 
   if (!account) return null
@@ -79,8 +82,7 @@ export default function ChangePassword() {
         forced ? (
           <button
             onClick={() => {
-              signOut()
-              navigate('/signin', { replace: true })
+              void signOut().then(() => navigate('/signin', { replace: true }))
             }}
             className="text-muted-foreground hover:underline"
           >

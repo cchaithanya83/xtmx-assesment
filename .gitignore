@@ -9,3 +9,5 @@ dist-ssr
 .smoke
 dist
 *.tsbuildinfo
+.firebase
+supabase/.temp

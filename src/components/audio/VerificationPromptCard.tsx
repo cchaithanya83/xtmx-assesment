@@ -1,6 +1,5 @@
 import * as React from 'react'
 import { ClipboardCheck } from 'lucide-react'
-import type { VerificationPrompt } from '@/types'
 import { Button } from '@/components/ui'
 import { cn } from '@/lib/utils'
 
@@ -10,13 +9,24 @@ import { cn } from '@/lib/utils'
  * Appears *while the audio keeps playing* — that is the multitasking load being
  * measured. The audio is only paused when the trainer has enabled pausing.
  */
+/**
+ * The prompt shape the client receives. The correct answer is deliberately not
+ * part of it — grading happens on the server when the attempt is submitted.
+ */
+export interface ClientVerificationPrompt {
+  id: string
+  question: string
+  options: string[]
+  triggerAtProgress: number
+}
+
 export function VerificationPromptCard({
   prompt,
   onAnswer,
   audioContinues,
   className,
 }: {
-  prompt: VerificationPrompt
+  prompt: ClientVerificationPrompt
   onAnswer: (answer: string) => void
   audioContinues: boolean
   className?: string

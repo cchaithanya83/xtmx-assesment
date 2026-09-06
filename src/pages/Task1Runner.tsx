@@ -1,19 +1,14 @@
 import * as React from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { AlertTriangle, Flag, Keyboard, ShieldAlert } from 'lucide-react'
-import type { Attempt } from '@/types'
 import { getAssignment } from '@/data/tasks'
 import {
   applyInput,
   buildComparison,
   computeMetrics,
   createTypingState,
-  finishTyping,
   type TypingState,
 } from '@/engine/typingEngine'
-import { scoreTask1 } from '@/engine/scoring'
-import { buildTask1Feedback } from '@/engine/feedback'
-import { classifyRisk } from '@/engine/certification'
 import { useAppStore } from '@/store/appStore'
 import { AssessmentShell, DesktopRecommendedNotice } from '@/components/layout/AppShell'
 import { ComparisonLegend, TextComparison } from '@/components/typing/TextComparison'
@@ -40,8 +35,6 @@ export default function Task1Runner() {
   const settings = useAppStore((s) => s.settings)
   const submitAttempt = useAppStore((s) => s.submitAttempt)
   const abandonSession = useAppStore((s) => s.abandonSession)
-  const publishLive = useAppStore((s) => s.publishLive)
-  const clearLive = useAppStore((s) => s.clearLive)
 
   const assignment = getAssignment(1, assignmentId)
   const source = activeSession?.passage?.text ?? ''
@@ -53,6 +46,7 @@ export default function Task1Runner() {
   const [elapsed, setElapsed] = React.useState(0)
   const [confirmExit, setConfirmExit] = React.useState(false)
   const [submitting, setSubmitting] = React.useState(false)
+  const [submitError, setSubmitError] = React.useState<string | null>(null)
   /* Set synchronously at the start of submission. `submitting` state is not
      reliable here: the Zustand write that clears `activeSession` can trigger a
      render before the React state update is flushed, which would let the guard
@@ -61,6 +55,8 @@ export default function Task1Runner() {
 
   const startRef = React.useRef<number | null>(null)
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
+  /** Mirrors `typed` so a timeout submission always sends the latest text. */
+  const typedRef = React.useRef('')
 
   const integrity = useIntegrityMonitor({
     enabled: Boolean(isCertification),
@@ -82,6 +78,7 @@ export default function Task1Runner() {
   React.useEffect(() => {
     setState(createTypingState(source))
     setTyped('')
+    typedRef.current = ''
   }, [source])
 
   /* ---- Countdown ------------------------------------------------------- */
@@ -101,117 +98,56 @@ export default function Task1Runner() {
   )
   const cells = React.useMemo(() => buildComparison(state), [state])
 
-  /* ---- Live feed to the trainer monitoring view ------------------------ */
-  const candidateId = activeSession?.candidateId
-  const candidateName = useAppStore((s) =>
-    candidateId ? (s.candidates.find((c) => c.id === candidateId)?.fullName ?? '') : '',
-  )
-
-  React.useEffect(() => {
-    if (!started || !candidateId || state.finished) return
-    const id = window.setInterval(() => {
-      const live = scoreTask1(metrics, settings)
-      publishLive({
-        candidateId,
-        candidateName,
-        taskId: 1,
-        assignmentId,
-        wpm: metrics.wpm,
-        accuracy: metrics.accuracy,
-        progress: metrics.completionPercentage,
-        currentScore: live.score,
-        risk: classifyRisk(live.score, live.passed, 0),
-        updatedAt: new Date().toISOString(),
-      })
-    }, 2000)
-    return () => window.clearInterval(id)
-  }, [
-    started,
-    candidateId,
-    candidateName,
-    assignmentId,
-    metrics,
-    settings,
-    publishLive,
-    state.finished,
-  ])
-
   /* ---- Submission ------------------------------------------------------ */
+  /**
+   * Submits the typed text. Nothing about the outcome is decided here — the
+   * server replays the text against the passage it issued, measures elapsed
+   * time from its own clock, and returns the graded attempt.
+   */
   const handleSubmit = React.useCallback(
-    (reason: 'completed' | 'time' | 'manual') => {
-      if (submitting || !activeSession) return
+    async (reason: 'completed' | 'time' | 'manual') => {
+      if (submittedRef.current || !activeSession) return
       submittedRef.current = true
       setSubmitting(true)
+      setSubmitError(null)
 
-      const finalElapsed =
-        startRef.current !== null ? (performance.now() - startRef.current) / 1000 : elapsed
-      const finalState = finishTyping(state)
-      const finalMetrics = computeMetrics(finalState, Math.max(1, finalElapsed))
-      const result = scoreTask1(finalMetrics, settings)
-      const feedback = buildTask1Feedback(finalMetrics, result.score, settings, assignmentId)
-
-      const attempt: Omit<Attempt, 'id'> = {
-        candidateId: activeSession.candidateId,
-        taskId: 1,
-        assignmentId,
-        attemptNumber: activeSession.attemptNumber,
-        mode: activeSession.mode,
-        startedAt: activeSession.startedAt,
-        completedAt: new Date().toISOString(),
-        score: result.score,
-        passed: result.passed,
-        wpm: finalMetrics.wpm,
-        rawWpm: finalMetrics.rawWpm,
-        accuracy: finalMetrics.accuracy,
-        totalKeystrokes: finalMetrics.totalKeystrokes,
-        incorrectKeystrokes: finalMetrics.incorrectKeystrokes,
-        backspaces: finalMetrics.backspaces,
-        completionPercentage: finalMetrics.completionPercentage,
-        breakdown: result.breakdown,
-        gates: result.gates,
-        feedback,
-        typingMetrics: finalMetrics,
-        passageId: activeSession.passage?.id,
-        integrity: {
-          ...integrity.log,
-          events: [
-            ...integrity.log.events,
-            { at: new Date().toISOString(), type: `submitted:${reason}` },
-          ],
-        },
+      try {
+        await submitAttempt({
+          sessionId: activeSession.sessionId,
+          typedText: typedRef.current,
+          integrity: {
+            ...integrity.log,
+            events: [
+              ...integrity.log.events,
+              { at: new Date().toISOString(), type: `submitted:${reason}` },
+            ],
+          },
+        })
+        navigate('/result', { replace: true })
+      } catch (err) {
+        // Allow a retry rather than losing the candidate's work to a blip.
+        submittedRef.current = false
+        setSubmitting(false)
+        setSubmitError((err as Error).message)
       }
-
-      clearLive(activeSession.candidateId)
-      submitAttempt(attempt)
-      navigate('/result', { replace: true })
     },
-    [
-      submitting,
-      activeSession,
-      elapsed,
-      state,
-      settings,
-      assignmentId,
-      integrity.log,
-      clearLive,
-      submitAttempt,
-      navigate,
-    ],
+    [activeSession, integrity.log, submitAttempt, navigate],
   )
 
   /* ---- Auto-submit on completion or timeout ---------------------------- */
   React.useEffect(() => {
-    if (started && state.finished && !submitting) handleSubmit('completed')
-  }, [started, state.finished, submitting, handleSubmit])
+    if (started && state.finished && !submittedRef.current) void handleSubmit('completed')
+  }, [started, state.finished, handleSubmit])
 
   React.useEffect(() => {
-    if (started && remaining <= 0 && !submitting) handleSubmit('time')
-  }, [started, remaining, submitting, handleSubmit])
+    if (started && remaining <= 0 && !submittedRef.current) void handleSubmit('time')
+  }, [started, remaining, handleSubmit])
 
   /* ---- Input ----------------------------------------------------------- */
   const onChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     if (!started) return
     const value = e.target.value
+    typedRef.current = value
     setTyped(value)
     setState((prev) => applyInput(prev, value, { pauseThresholdMs: settings.pauseThresholdMs }))
   }
@@ -343,11 +279,24 @@ export default function Task1Runner() {
                   Errors are marked in the source as you type. Use backspace to correct — corrections
                   are tracked separately from clean keystrokes.
                 </p>
-                <Button variant="outline" size="sm" onClick={() => handleSubmit('manual')}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={submitting}
+                  onClick={() => void handleSubmit('manual')}
+                >
                   <Flag className="size-3.5" />
                   Submit
                 </Button>
               </div>
+              {submitError && (
+                <div className="mt-2 flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-900">
+                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                  <span>
+                    {submitError} Your work is still here — press Submit to try again.
+                  </span>
+                </div>
+              )}
               {integrity.log.flagged && isCertification && (
                 <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
                   <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />

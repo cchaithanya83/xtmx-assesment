@@ -5,7 +5,12 @@ import path from 'node:path'
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: { '@': path.resolve(__dirname, './src') },
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+      // Domain logic shared verbatim with the Supabase Edge Functions, so the
+      // browser and the server can never drift on scoring or validation.
+      '@shared': path.resolve(__dirname, './supabase/functions/_shared'),
+    },
   },
   server: { port: 5173 },
   build: {

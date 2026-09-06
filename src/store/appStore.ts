@@ -250,50 +250,54 @@ export const useAppStore = create<AppState>((set, get) => ({
   async hydrate() {
     if (get().hydrated) return
     const session = readSession()
+
+    let snapshot: WorkspaceSnapshot | null = null
     try {
-      const snapshot = await adapter.load()
-      if (snapshot) {
-        // A workspace saved before authentication existed has no accounts —
-        // bootstrap them so an administrator can always get in.
-        const accounts = snapshot.accounts?.length
-          ? snapshot.accounts
-          : await buildBootstrapAccounts()
-
-        // Restore the session only if that account still exists and is active.
-        const account = accounts.find((a) => a.id === session.accountId)
-        const usable = account && account.status === 'active'
-
-        set({
-          accounts,
-          candidates: snapshot.candidates,
-          attempts: snapshot.attempts,
-          certifications: snapshot.certifications,
-          settings: { ...DEFAULT_SETTINGS, ...snapshot.settings },
-          currentAccountId: usable ? account.id : null,
-          currentCandidateId: usable ? (account.candidateId ?? null) : null,
-          role: usable ? portalFor(account.role) : 'candidate',
-          hydrated: true,
-        })
-        if (!snapshot.accounts?.length) scheduleSave(get, set, true)
-        return
-      }
+      snapshot = await adapter.load()
     } catch (err) {
       set({ storageError: (err as Error).message })
     }
 
-    // First run — bootstrap the admin/trainer logins and seed the demo
-    // workspace so the trainer portal has content to show.
-    const accounts = await buildBootstrapAccounts()
-    const seeded = buildSeedWorkspace(DEFAULT_SETTINGS)
+    // Two things can be missing independently, and each has its own trigger:
+    //
+    //  - No accounts  → bootstrap the admin/trainer logins, so the platform can
+    //    never be locked out of itself.
+    //  - No candidates AND no attempts → a genuinely empty workspace, so seed
+    //    the demo cohort and give the trainer portal something to show.
+    //
+    // They are checked separately because a hosted backend always returns a
+    // snapshot object (empty arrays rather than null), unlike local storage
+    // which returns null on first run. Treating "empty" and "absent" the same
+    // way is what keeps a fresh Supabase project from starting up bare.
+    const needsAccounts = !snapshot?.accounts?.length
+    const isEmptyWorkspace = !snapshot?.candidates?.length && !snapshot?.attempts?.length
+
+    const accounts = needsAccounts
+      ? await buildBootstrapAccounts()
+      : (snapshot?.accounts ?? [])
+
+    // Never re-seed a workspace a trainer has deliberately cleared: demo data
+    // is only planted when there is no candidate *and* no attempt history.
+    const seeded = isEmptyWorkspace ? buildSeedWorkspace(DEFAULT_SETTINGS) : null
+
+    // Restore the session only if that account still exists and is active.
+    const account = accounts.find((a) => a.id === session.accountId)
+    const usable = account && account.status === 'active'
+
     set({
       accounts,
-      candidates: seeded.candidates,
-      attempts: seeded.attempts,
-      certifications: [],
-      settings: DEFAULT_SETTINGS,
+      candidates: seeded ? seeded.candidates : (snapshot?.candidates ?? []),
+      attempts: seeded ? seeded.attempts : (snapshot?.attempts ?? []),
+      certifications: snapshot?.certifications ?? [],
+      settings: { ...DEFAULT_SETTINGS, ...(snapshot?.settings ?? {}) },
+      currentAccountId: usable ? account.id : null,
+      currentCandidateId: usable ? (account.candidateId ?? null) : null,
+      role: usable ? portalFor(account.role) : 'candidate',
       hydrated: true,
     })
-    scheduleSave(get, set, true)
+
+    // Persist whatever we just invented so the next load finds it waiting.
+    if (needsAccounts || seeded) scheduleSave(get, set, true)
   },
 
   setRole(role) {

@@ -1,0 +1,4 @@
+# SPA fallback: every route is handled by React Router on the client, so any
+# path that is not a real file must serve index.html rather than a 404.
+# Without this, /signin, /trainer and every deep link 404 on refresh.
+/*  /index.html  200

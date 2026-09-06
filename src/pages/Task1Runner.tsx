@@ -10,6 +10,7 @@ import {
   type TypingState,
 } from '@/engine/typingEngine'
 import { useAppStore } from '@/store/appStore'
+import { assessments } from '@/api/client'
 import { AssessmentShell, DesktopRecommendedNotice } from '@/components/layout/AppShell'
 import { ComparisonLegend, TextComparison } from '@/components/typing/TextComparison'
 import { AssessmentProgressBar, LiveMetrics } from '@/components/typing/LiveMetrics'
@@ -73,6 +74,31 @@ export default function Task1Runner() {
       navigate('/task/1', { replace: true })
     }
   }, [activeSession, navigate])
+  /**
+   * Release the session if the candidate leaves without submitting.
+   *
+   * Covers the closed tab, the browser back button and an unmount from any
+   * other cause. `keepalive` lets the request outlive the page. The server also
+   * expires sessions that overrun their time limit, so a missed call self-heals
+   * — this just makes the trainer's live view accurate immediately.
+   */
+  React.useEffect(() => {
+    const sessionId = activeSession?.sessionId
+    if (!sessionId) return
+
+    const release = () => {
+      if (submittedRef.current) return
+      void assessments.abandon(sessionId, true)
+    }
+
+    window.addEventListener('pagehide', release)
+    return () => {
+      window.removeEventListener('pagehide', release)
+      // Unmounting without having submitted means they navigated away.
+      release()
+    }
+  }, [activeSession?.sessionId])
+
 
   /* ---- Reset engine when the passage changes --------------------------- */
   React.useEffect(() => {
@@ -164,7 +190,7 @@ export default function Task1Runner() {
     if (started && !state.finished) {
       setConfirmExit(true)
     } else {
-      abandonSession()
+      void abandonSession()
       navigate('/task/1')
     }
   }
@@ -324,7 +350,7 @@ export default function Task1Runner() {
             <Button
               variant="destructive"
               onClick={() => {
-                abandonSession()
+                void abandonSession()
                 navigate('/task/1')
               }}
             >

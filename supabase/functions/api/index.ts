@@ -31,8 +31,9 @@ import {
   saveSettings,
   touchCandidate,
 } from '../_server/repo.ts'
-import { startAssessment, submitAssessment } from './assessments.ts'
+import { abandonAssessment, startAssessment, submitAssessment } from './assessments.ts'
 import { computeAssessmentResult, deriveProgress } from '../_shared/certification.ts'
+import { getAssignment } from '../_shared/tasks.ts'
 import { buildSeedWorkspace } from '../_shared/seed.ts'
 import { uid } from '../_shared/core.ts'
 import type { AccountRole, TrainerSettings } from '../_shared/types.ts'
@@ -165,6 +166,15 @@ router.post('/assessments/submit', async ({ ctx, body }) => {
   return json(await submitAssessment(ctx, input))
 })
 
+/**
+ * Releases a session the candidate walked away from, so the trainer's live view
+ * stops showing them and they are free to restart.
+ */
+router.post('/assessments/abandon', async ({ ctx, body }) => {
+  const input = await body<{ sessionId?: string }>()
+  return json(await abandonAssessment(ctx, input))
+})
+
 /* ---- Settings ---------------------------------------------------------- */
 
 /** Everyone signed in may read the thresholds; the UI displays them. */
@@ -221,7 +231,27 @@ router.get('/trainer/live', async ({ ctx }) => {
     .limit(100)
   if (error) throw error
 
-  const rows = data ?? []
+  // `expires_at` carries a generous submit grace, so it is far too loose for a
+  // live view — a closed tab would linger for another quarter of an hour. A
+  // session is only "live" while it is still inside its own assignment time
+  // limit, plus a minute of slack for a slow submit.
+  const now = Date.now()
+  const LIVE_SLACK_MS = 60_000
+  const fresh = (data ?? []).filter((r) => {
+    const limit = getAssignment(r.task_id as number, r.assignment_id as number).timeLimitSeconds
+    return now - new Date(r.started_at as string).getTime() < limit * 1000 + LIVE_SLACK_MS
+  })
+
+  // Opportunistic housekeeping: clear the ones that timed out unsubmitted so
+  // the table does not fill with ghosts.
+  const stale = (data ?? []).filter((r) => !fresh.includes(r)).map((r) => r.id as string)
+  if (stale.length) {
+    ctx.db.from('assessment_sessions').delete().in('id', stale).is('consumed_at', null)
+      .then(() => {})
+      .catch(() => {})
+  }
+
+  const rows = fresh
   const ids = [...new Set(rows.map((r) => r.candidate_id as string))]
   const names = new Map<string, { fullName: string; candidateId: string; batch: string }>()
 

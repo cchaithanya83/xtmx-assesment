@@ -5,6 +5,7 @@ import type { AudioAttemptTelemetry, AudioField, FieldTelemetry } from '@/types'
 import { getAssignment } from '@/data/tasks'
 import { SegmentSpeechEngine, resolveTTSProvider } from '@/audio/tts'
 import { useAppStore } from '@/store/appStore'
+import { assessments } from '@/api/client'
 import type { PublicScenario } from '@/api/client'
 import { AssessmentShell, DesktopRecommendedNotice } from '@/components/layout/AppShell'
 import { AudioPlayer } from '@/components/audio/AudioPlayer'
@@ -95,6 +96,31 @@ export default function Task2Runner() {
       navigate('/task/2', { replace: true })
     }
   }, [activeSession, navigate])
+  /**
+   * Release the session if the candidate leaves without submitting.
+   *
+   * Covers the closed tab, the browser back button and an unmount from any
+   * other cause. `keepalive` lets the request outlive the page. The server also
+   * expires sessions that overrun their time limit, so a missed call self-heals
+   * — this just makes the trainer's live view accurate immediately.
+   */
+  React.useEffect(() => {
+    const sessionId = activeSession?.sessionId
+    if (!sessionId) return
+
+    const release = () => {
+      if (submittedRef.current) return
+      void assessments.abandon(sessionId, true)
+    }
+
+    window.addEventListener('pagehide', release)
+    return () => {
+      window.removeEventListener('pagehide', release)
+      // Unmounting without having submitted means they navigated away.
+      release()
+    }
+  }, [activeSession?.sessionId])
+
 
   /* ---- Initialise telemetry for the scenario's fields ------------------- */
   React.useEffect(() => {
@@ -325,7 +351,7 @@ export default function Task2Runner() {
     if (started) {
       setConfirmExit(true)
     } else {
-      abandonSession()
+      void abandonSession()
       navigate('/task/2')
     }
   }
@@ -540,7 +566,7 @@ export default function Task2Runner() {
               variant="destructive"
               onClick={() => {
                 engineRef.current?.stop()
-                abandonSession()
+                void abandonSession()
                 navigate('/task/2')
               }}
             >

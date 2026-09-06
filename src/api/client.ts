@@ -252,6 +252,33 @@ export const assessments = {
     })
   },
 
+  /**
+   * Releases an unsubmitted session.
+   *
+   * `keepalive` lets the request survive the page unloading, which is the whole
+   * point — the common case is a candidate closing the tab mid-assessment.
+   */
+  async abandon(sessionId: string, keepalive = false): Promise<void> {
+    if (!isConfigured) return
+    const token = await accessToken()
+    if (!token) return
+    try {
+      await fetch(`${API_BASE}/assessments/abandon`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ sessionId }),
+        keepalive,
+      })
+    } catch {
+      // Best effort. The server also expires sessions that run past their time
+      // limit, so a missed call self-heals.
+    }
+  },
+
   submit(input: {
     sessionId: string
     typedText?: string

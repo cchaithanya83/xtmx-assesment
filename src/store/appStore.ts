@@ -89,7 +89,7 @@ interface AppState {
     assignmentId: number,
     mode: AssessmentMode,
   ) => Promise<StartResponse>
-  abandonSession: () => void
+  abandonSession: () => Promise<void>
   submitAttempt: (input: SubmitInput) => Promise<Attempt>
 
   /* --- settings ---------------------------------------------------------- */
@@ -227,8 +227,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     return session
   },
 
-  abandonSession() {
+  /** Tells the server to release the session, then clears it locally. */
+  async abandonSession() {
+    const session = get().activeSession
     set({ activeSession: null })
+    if (session) await assessments.abandon(session.sessionId)
   },
 
   /**

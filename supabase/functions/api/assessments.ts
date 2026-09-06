@@ -225,6 +225,40 @@ export async function startAssessment(
 }
 
 /* -------------------------------------------------------------------------- */
+/*  Abandon                                                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Releases an unsubmitted session.
+ *
+ * Called when a candidate exits an assessment deliberately, and best-effort on
+ * tab close. Without it an abandoned session sits open until its expiry grace
+ * elapses, and the trainer's live view keeps showing a candidate who left.
+ *
+ * The row is deleted rather than consumed: nothing was submitted, so there is
+ * no attempt to tie it to, and deleting frees the candidate to start again.
+ */
+export async function abandonAssessment(
+  ctx: Caller,
+  input: { sessionId?: string },
+): Promise<{ ok: true }> {
+  const candidateId = resolveCandidateId(ctx)
+  if (!input.sessionId) throw badRequest('sessionId is required')
+
+  // Scoped to the caller and to unsubmitted sessions, so this can never delete
+  // someone else's work or erase a completed attempt's session.
+  const { error } = await ctx.db
+    .from('assessment_sessions')
+    .delete()
+    .eq('id', input.sessionId)
+    .eq('candidate_id', candidateId)
+    .is('consumed_at', null)
+
+  if (error) throw error
+  return { ok: true }
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Submit                                                                     */
 /* -------------------------------------------------------------------------- */
 

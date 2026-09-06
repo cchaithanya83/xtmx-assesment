@@ -2,7 +2,8 @@ import * as React from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Loader2, UserPlus } from 'lucide-react'
 import { useAppStore } from '@/store/appStore'
-import { BATCHES, LOCATIONS, TRAINERS } from '@/data/pools'
+import { BATCHES, LOCATIONS } from '@/data/pools'
+import { auth } from '@/api/client'
 import { assessPassword, isValidEmail, MIN_PASSWORD_LENGTH } from '@/lib/roles'
 import { Button, Input, Select } from '@/components/ui'
 import { AuthLayout, Field, FormError, PasswordInput, PasswordMeter } from './AuthLayout'
@@ -26,11 +27,42 @@ export default function SignUp() {
     confirmPassword: '',
     batch: BATCHES[0],
     location: LOCATIONS[0],
-    trainerName: TRAINERS[0],
+    // Free text shown when location is "Other".
+    otherLocation: '',
+    trainerName: '',
   })
   const [errors, setErrors] = React.useState<Record<string, string>>({})
   const [formError, setFormError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
+
+  // Trainers come from the server so the list reflects who actually exists,
+  // rather than a hardcoded set that drifts as staff join and leave.
+  const [trainers, setTrainers] = React.useState<string[]>([])
+  const [trainersLoaded, setTrainersLoaded] = React.useState(false)
+
+  React.useEffect(() => {
+    let cancelled = false
+    auth
+      .trainers()
+      .then((res) => {
+        if (cancelled) return
+        setTrainers(res.trainers)
+        // Preselect the only trainer, but never guess when there are several.
+        if (res.trainers.length === 1) {
+          setForm((f) => ({ ...f, trainerName: res.trainers[0] }))
+        }
+      })
+      .catch(() => {
+        // Registration must not depend on this lookup succeeding.
+        if (!cancelled) setTrainers([])
+      })
+      .finally(() => {
+        if (!cancelled) setTrainersLoaded(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const set = (key: keyof typeof form, value: string) => {
     setForm((f) => ({ ...f, [key]: value }))
@@ -53,6 +85,15 @@ export default function SignUp() {
       next.confirmPassword = 'Passwords do not match'
     }
 
+    if (form.location === 'Other' && !form.otherLocation.trim()) {
+      next.otherLocation = 'Enter your location'
+    }
+    // Only enforced when there is actually a list to choose from — a fresh
+    // deployment with no staff yet must still accept registrations.
+    if (trainers.length > 0 && !form.trainerName.trim()) {
+      next.trainerName = 'Select your trainer'
+    }
+
     setErrors(next)
     if (Object.keys(next).length) return
 
@@ -64,8 +105,9 @@ export default function SignUp() {
         email: form.email,
         password: form.password,
         batch: form.batch,
-        location: form.location,
-        trainerName: form.trainerName,
+        location:
+          form.location === 'Other' ? form.otherLocation.trim() : form.location,
+        trainerName: form.trainerName.trim(),
       })
       navigate('/dashboard', { replace: true })
     } catch (err) {
@@ -166,12 +208,50 @@ export default function SignUp() {
           </Field>
         </div>
 
-        <Field label="Trainer">
-          <Select value={form.trainerName} onChange={(e) => set('trainerName', e.target.value)}>
-            {TRAINERS.map((t) => (
-              <option key={t}>{t}</option>
-            ))}
-          </Select>
+        {form.location === 'Other' && (
+          <Field label="Specify your location" error={errors.otherLocation}>
+            <Input
+              value={form.otherLocation}
+              placeholder="e.g. Coimbatore"
+              autoFocus
+              onChange={(e) => set('otherLocation', e.target.value)}
+            />
+          </Field>
+        )}
+
+        <Field
+          label="Trainer"
+          error={errors.trainerName}
+          hint={
+            trainersLoaded && trainers.length === 0
+              ? 'No trainers are registered yet — you can type a name or leave this blank.'
+              : undefined
+          }
+        >
+          {trainersLoaded && trainers.length === 0 ? (
+            // Nothing to choose from on a fresh deployment; accept free text so
+            // registration is never blocked by an empty staff list.
+            <Input
+              value={form.trainerName}
+              placeholder="Trainer name (optional)"
+              onChange={(e) => set('trainerName', e.target.value)}
+            />
+          ) : (
+            <Select
+              value={form.trainerName}
+              disabled={!trainersLoaded}
+              onChange={(e) => set('trainerName', e.target.value)}
+            >
+              <option value="">
+                {trainersLoaded ? 'Select your trainer…' : 'Loading trainers…'}
+              </option>
+              {trainers.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </Select>
+          )}
         </Field>
 
         <Button type="submit" size="lg" className="w-full" disabled={busy}>

@@ -170,6 +170,11 @@ export const auth = {
   },
 
   /** Whether this deployment still needs its first administrator. */
+  /** Trainer names for the sign-up dropdown. Names only, no other detail. */
+  trainers(): Promise<{ trainers: string[] }> {
+    return request('/auth/trainers', { anonymous: true })
+  },
+
   bootstrapStatus(): Promise<{ needsBootstrap: boolean; schemaReady?: boolean }> {
     return request('/auth/bootstrap', { anonymous: true })
   },

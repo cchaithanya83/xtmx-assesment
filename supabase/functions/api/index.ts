@@ -527,6 +527,31 @@ async function handleBootstrapStatus(): Promise<Response> {
   return json({ needsBootstrap: (count ?? 0) === 0, schemaReady: true })
 }
 
+/**
+ * Trainer names, for the sign-up form's trainer dropdown.
+ *
+ * Unauthenticated by necessity — a candidate has to pick a trainer before they
+ * have an account. Deliberately minimal: **names only**. No ids, no emails, no
+ * roles, and disabled staff are excluded. That is the smallest disclosure that
+ * makes the form work, and a name is already on the training-room whiteboard.
+ */
+async function handleTrainerNames(): Promise<Response> {
+  const db = adminClient()
+  const { data, error } = await db
+    .from('profiles')
+    .select('name')
+    .in('role', ['trainer', 'admin'])
+    .eq('status', 'active')
+    .order('name', { ascending: true })
+
+  // A missing schema or a fresh install must not block registration — the form
+  // falls back to free text when this comes back empty.
+  if (error) return json({ trainers: [] })
+
+  const names = [...new Set((data ?? []).map((r) => (r.name as string)?.trim()).filter(Boolean))]
+  return json({ trainers: names })
+}
+
 /* ---- Candidate self-registration --------------------------------------- */
 
 /**
@@ -705,6 +730,7 @@ Deno.serve(async (req: Request) => {
     if (req.method === 'POST' && path === '/auth/register') return await handleRegister(req)
     if (req.method === 'POST' && path === '/auth/bootstrap') return await handleBootstrap(req)
     if (req.method === 'GET' && path === '/auth/bootstrap') return await handleBootstrapStatus()
+    if (req.method === 'GET' && path === '/auth/trainers') return await handleTrainerNames()
 
     const match = router.match(req.method, path)
     if (!match) throw notFound(`No route for ${req.method} ${path}`)

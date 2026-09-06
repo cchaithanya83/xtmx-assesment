@@ -68,13 +68,10 @@ export const BATCHES = [
 ]
 
 export const LOCATIONS = [
-  'Hyderabad',
-  'Bengaluru',
-  'Chennai',
-  'Pune',
+  'Mangalore',
+  'Bangalore',
   'Noida',
-  'Mumbai',
-  'Kochi',
+  'Other',
 ]
 
 export const TRAINERS = [

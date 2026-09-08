@@ -472,6 +472,12 @@ export interface TrainerSettings {
    * worth 10 points.
    */
   minCompletion: number
+  /**
+   * What a backspace costs, as a fraction of an uncorrected error.
+   * 0.2 means five corrections cost the same as one wrong character left in.
+   * 0 restores the old behaviour where corrections were free.
+   */
+  backspacePenaltyWeight: number
   wpmBands: WpmScoreBand[]
   pauseThresholdMs: number
 

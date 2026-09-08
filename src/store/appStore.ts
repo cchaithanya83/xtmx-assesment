@@ -49,6 +49,7 @@ export interface RegisterInput {
 export interface SubmitInput {
   sessionId: string
   typedText?: string
+  backspaces?: number
   answers?: Record<string, string>
   telemetry?: unknown
   integrity?: unknown

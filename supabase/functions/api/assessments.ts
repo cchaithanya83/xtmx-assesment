@@ -11,7 +11,12 @@ import {
   saveCertification,
 } from '../_server/repo.ts'
 import { getAssignment } from '../_shared/tasks.ts'
-import { pickPassage, PASSAGE_POOLS } from '../_shared/passages.ts'
+import { PASSAGE_POOLS } from '../_shared/passages.ts'
+import {
+  activePassagePool,
+  resolveLevelFields,
+  resolvePools,
+} from '../_server/content.ts'
 import { generateScenario } from '../_shared/scenario.ts'
 import { applyInput, computeMetrics, createTypingState } from '../_shared/typing.ts'
 import { scoreTask1, scoreTask2 } from '../_shared/scoring.ts'
@@ -24,6 +29,7 @@ import {
 import { uid } from '../_shared/core.ts'
 import type {
   Attempt,
+  TypingPassage,
   AudioAttemptTelemetry,
   AudioScenario,
   IntegrityLog,
@@ -170,11 +176,15 @@ export async function startAssessment(
     startedAt.getTime() + (assignment.timeLimitSeconds + SESSION_GRACE_SECONDS) * 1000,
   )
 
-  let passageId: string | null = null
+  let passage: TypingPassage | null = null
   let scenario: AudioScenario | null = null
 
   if (taskId === 1) {
-    passageId = pickPassage(assignmentId, attemptNumber).id
+    // Passages are admin-editable, so the pool comes from the database.
+    const pool = await activePassagePool(ctx.db, assignmentId)
+    if (!pool.length) throw badRequest('No passages are configured for this assignment')
+    // Rotate by attempt number so a retry never repeats the previous text.
+    passage = pool[(Math.max(1, attemptNumber) - 1) % pool.length]
   } else {
     const level = assignment.audioLevel ?? 1
     const base = settings.audioLevels.find((l) => l.level === level) ?? settings.audioLevels[0]
@@ -182,7 +192,13 @@ export async function startAssessment(
       assignmentId === 5
         ? { ...base, verificationPrompts: settings.verificationPromptFrequency }
         : base
-    scenario = generateScenario(config)
+
+    // Names, providers, amounts and the field roster are all admin-editable.
+    const [pools, levelFields] = await Promise.all([
+      resolvePools(ctx.db),
+      resolveLevelFields(ctx.db),
+    ])
+    scenario = generateScenario(config, undefined, { pools, levelFields })
   }
 
   const { data, error } = await ctx.db
@@ -193,7 +209,10 @@ export async function startAssessment(
       assignment_id: assignmentId,
       attempt_number: attemptNumber,
       mode,
-      passage_id: passageId,
+      passage_id: passage?.id ?? null,
+      // Snapshot, not a reference: an admin editing this passage mid-attempt
+      // must not change what the candidate is scored against.
+      passage,
       scenario,
       started_at: startedAt.toISOString(),
       expires_at: expiresAt.toISOString(),
@@ -203,11 +222,6 @@ export async function startAssessment(
 
   if (error) throw error
   if (!data) throw badRequest('Could not start the assessment')
-
-  const passage =
-    taskId === 1
-      ? (PASSAGE_POOLS[assignmentId] ?? []).find((p) => p.id === passageId)
-      : undefined
 
   return {
     sessionId: data.id as string,
@@ -266,6 +280,16 @@ interface SubmitInput {
   sessionId?: string
   /** Task 1 */
   typedText?: string
+  /**
+   * Backspaces the client observed. Cannot be derived from the final text, so
+   * it is reported rather than measured.
+   *
+   * Under-reporting is possible, but it can only ever *raise* the score back to
+   * what it would have been with no backspace charge at all — it cannot push
+   * accuracy above the honest character accuracy of the submitted text. The
+   * count is also recorded for trainer review.
+   */
+  backspaces?: number
   /** Task 2 */
   answers?: Record<string, string>
   telemetry?: Partial<AudioAttemptTelemetry>
@@ -394,8 +418,13 @@ function scoreTypingAttempt({
   completedAt,
 }: ScoreArgs): Attempt {
   const assignmentId = session.assignment_id as number
-  const passageId = session.passage_id as string
-  const passage = (PASSAGE_POOLS[assignmentId] ?? []).find((p) => p.id === passageId)
+
+  // Prefer the snapshot taken at issue time. The id lookup is only a fallback
+  // for sessions created before snapshots existed.
+  const snapshot = session.passage as TypingPassage | null
+  const passage =
+    snapshot ??
+    (PASSAGE_POOLS[assignmentId] ?? []).find((p) => p.id === (session.passage_id as string))
   if (!passage) throw badRequest('The issued passage could not be resolved')
 
   const typed = typeof input.typedText === 'string' ? input.typedText : ''
@@ -403,12 +432,18 @@ function scoreTypingAttempt({
     throw badRequest('Submitted text is implausibly long for this passage')
   }
 
-  // Replay the whole submission as a single input event. Keystroke-level detail
-  // (backspaces, corrected errors) is inherently client-observed and is
-  // therefore recorded for the trainer but excluded from the score.
+  // Replay the whole submission as a single input event, then score the result.
+  // Character accuracy, WPM and completion are all derived here from the text
+  // and the server's own elapsed time; only the backspace count is reported.
   let state = createTypingState(passage.text)
   state = applyInput(state, typed, { pauseThresholdMs: settings.pauseThresholdMs, now: 0 })
-  const metrics = computeMetrics(state, elapsedSeconds)
+
+  // Replaying the whole submission as one event means the engine sees no
+  // backspaces, so the client's count is supplied and clamped.
+  const metrics = computeMetrics(state, elapsedSeconds, {
+    backspaceWeight: settings.backspacePenaltyWeight,
+    backspaces: clampInt(input.backspaces, 0, typed.length * 4 + 1000),
+  })
 
   const result = scoreTask1(metrics, settings)
   const feedback = buildTask1Feedback(metrics, result.score, settings, assignmentId)

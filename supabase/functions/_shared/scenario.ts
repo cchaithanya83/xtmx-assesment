@@ -7,23 +7,13 @@ import type {
   ScriptSegment,
   VerificationPrompt,
 } from './types.ts'
+import { NETWORK_STATUSES } from './pools.ts'
 import {
-  COINSURANCE_VALUES,
-  COPAY_VALUES,
-  DEDUCTIBLE_VALUES,
-  FILLER_LINES,
-  FIRST_NAMES,
-  ID_PREFIXES,
-  INTRO_LINES,
-  LAST_NAMES,
-  NETWORK_STATUSES,
-  OOP_MAX_VALUES,
-  OUTRO_LINES,
-  PLAN_NAMES,
-  PROVIDERS,
-  SPECIALIST_COPAY_VALUES,
-  STATE_CODES,
-} from './pools.ts'
+  DEFAULT_LEVEL_FIELDS,
+  numberPoolOf,
+  poolOf,
+  type ScenarioContent,
+} from './content.ts'
 import { createRng, pick, randInt, shuffle, uid, type Rng } from './core.ts'
 import {
   currencyToWords,
@@ -70,8 +60,8 @@ function randChars(source: string, count: number, rng: Rng): string {
   return out
 }
 
-export function generateName(rng: Rng): string {
-  return `${pick(FIRST_NAMES, rng)} ${pick(LAST_NAMES, rng)}`
+export function generateName(rng: Rng, content?: ScenarioContent): string {
+  return `${pick(poolOf(content, 'FIRST_NAMES'), rng)} ${pick(poolOf(content, 'LAST_NAMES'), rng)}`
 }
 
 /** Valid adult DOB: between 22 and 68 years old. */
@@ -91,25 +81,25 @@ export function generatePhone(rng: Rng): string {
 }
 
 /** Patterns: ABC123456 · UHC7845AX92 · BC784592 */
-export function generateMemberId(rng: Rng): string {
+export function generateMemberId(rng: Rng, content?: ScenarioContent): string {
   const shape = randInt(1, 3, rng)
   if (shape === 1) return `${randChars(LETTERS, 3, rng)}${randChars(DIGITS, 6, rng)}`
   if (shape === 2)
-    return `${pick(ID_PREFIXES, rng)}${randChars(DIGITS, 4, rng)}${randChars(LETTERS, 2, rng)}${randChars(DIGITS, 2, rng)}`
+    return `${pick(poolOf(content, 'ID_PREFIXES'), rng)}${randChars(DIGITS, 4, rng)}${randChars(LETTERS, 2, rng)}${randChars(DIGITS, 2, rng)}`
   return `${randChars(LETTERS, 2, rng)}${randChars(DIGITS, 6, rng)}`
 }
 
 /** Patterns: POL-2291845-TX */
-export function generatePolicyNumber(rng: Rng): string {
-  return `POL-${randChars(DIGITS, 7, rng)}-${pick(STATE_CODES, rng)}`
+export function generatePolicyNumber(rng: Rng, content?: ScenarioContent): string {
+  return `POL-${randChars(DIGITS, 7, rng)}-${pick(poolOf(content, 'STATE_CODES'), rng)}`
 }
 
 /** Patterns: PA784521 · AUTH-89372 · TX-PA-87291 */
-export function generateAuthNumber(rng: Rng): string {
+export function generateAuthNumber(rng: Rng, content?: ScenarioContent): string {
   const shape = randInt(1, 3, rng)
   if (shape === 1) return `PA${randChars(DIGITS, 6, rng)}`
   if (shape === 2) return `AUTH-${randChars(DIGITS, 5, rng)}`
-  return `${pick(STATE_CODES, rng)}-PA-${randChars(DIGITS, 5, rng)}`
+  return `${pick(poolOf(content, 'STATE_CODES'), rng)}-PA-${randChars(DIGITS, 5, rng)}`
 }
 
 /** Patterns: REF872391 · CALL-728391 · RQ-89231 */
@@ -211,52 +201,37 @@ const FIELD_SPECS: Record<AudioFieldKey, FieldSpec> = {
   planName: { key: 'planName', label: 'Plan Name', type: 'text', placeholder: 'Plan' },
 }
 
-/** Field roster per level, in *form* order. Spoken order may differ. */
-const LEVEL_FIELDS: Record<number, AudioFieldKey[]> = {
-  1: ['memberName', 'dob', 'phone', 'memberId'],
-  2: ['memberName', 'dob', 'memberId', 'provider', 'copay', 'deductible', 'networkStatus'],
-  3: [
-    'memberName', 'dob', 'memberId', 'phone', 'provider',
-    'authorizationNumber', 'effectiveDate', 'networkStatus',
-  ],
-  4: [
-    'memberName', 'dob', 'memberId', 'policyNumber', 'provider',
-    'deductible', 'coinsurance', 'authorizationNumber', 'referenceNumber',
-  ],
-  5: [
-    'memberName', 'dob', 'memberId', 'policyNumber', 'phone',
-    'servicingProvider', 'planName', 'deductible', 'specialistCopay',
-    'coinsurance', 'networkStatus', 'authorizationNumber', 'referenceNumber',
-    'effectiveDate', 'outOfPocketMax',
-  ],
-}
 
 /* -------------------------------------------------------------------------- */
 /*  Scenario generation                                                        */
 /* -------------------------------------------------------------------------- */
 
 /** Every value the generator can produce, keyed by field. */
-function generateValues(rng: Rng, phonetic: boolean): Record<AudioFieldKey, string> {
+function generateValues(
+  rng: Rng,
+  phonetic: boolean,
+  content?: ScenarioContent,
+): Record<AudioFieldKey, string> {
   const year = new Date().getFullYear()
   return {
-    memberName: generateName(rng),
+    memberName: generateName(rng, content),
     dob: generateDob(rng),
-    memberId: phonetic ? generatePhoneticId(rng) : generateMemberId(rng),
+    memberId: phonetic ? generatePhoneticId(rng) : generateMemberId(rng, content),
     phone: generatePhone(rng),
-    provider: pick(PROVIDERS, rng),
-    servicingProvider: pick(PROVIDERS, rng),
-    copay: String(pick(COPAY_VALUES, rng)),
-    specialistCopay: String(pick(SPECIALIST_COPAY_VALUES, rng)),
-    deductible: String(pick(DEDUCTIBLE_VALUES, rng)),
-    outOfPocketMax: String(pick(OOP_MAX_VALUES, rng)),
-    coinsurance: pick(COINSURANCE_VALUES, rng),
-    networkStatus: pick(NETWORK_STATUSES, rng),
-    authorizationNumber: generateAuthNumber(rng),
+    provider: pick(poolOf(content, 'PROVIDERS'), rng),
+    servicingProvider: pick(poolOf(content, 'PROVIDERS'), rng),
+    copay: String(pick(numberPoolOf(content, 'COPAY_VALUES'), rng)),
+    specialistCopay: String(pick(numberPoolOf(content, 'SPECIALIST_COPAY_VALUES'), rng)),
+    deductible: String(pick(numberPoolOf(content, 'DEDUCTIBLE_VALUES'), rng)),
+    outOfPocketMax: String(pick(numberPoolOf(content, 'OOP_MAX_VALUES'), rng)),
+    coinsurance: pick(poolOf(content, 'COINSURANCE_VALUES'), rng),
+    networkStatus: pick(poolOf(content, 'NETWORK_STATUSES'), rng),
+    authorizationNumber: generateAuthNumber(rng, content),
     referenceNumber: generateReferenceNumber(rng),
-    policyNumber: generatePolicyNumber(rng),
+    policyNumber: generatePolicyNumber(rng, content),
     effectiveDate: `01/01/${year}`,
     terminationDate: generateFutureDate(rng, year + 1),
-    planName: pick(PLAN_NAMES, rng),
+    planName: pick(poolOf(content, 'PLAN_NAMES'), rng),
   }
 }
 
@@ -273,20 +248,48 @@ const CORRECTABLE: AudioFieldKey[] = [
   'outOfPocketMax',
 ]
 
-function correctedValue(key: AudioFieldKey, current: string, rng: Rng): string {
+function correctedValue(
+  key: AudioFieldKey,
+  current: string,
+  rng: Rng,
+  content?: ScenarioContent,
+): string {
   switch (key) {
     case 'deductible':
-      return String(pick(DEDUCTIBLE_VALUES.filter((v) => String(v) !== current), rng))
+      return String(
+        pick(
+          numberPoolOf(content, 'DEDUCTIBLE_VALUES').filter((v) => String(v) !== current),
+          rng,
+        ),
+      )
     case 'copay':
-      return String(pick(COPAY_VALUES.filter((v) => String(v) !== current), rng))
+      return String(
+        pick(
+          numberPoolOf(content, 'COPAY_VALUES').filter((v) => String(v) !== current),
+          rng,
+        ),
+      )
     case 'specialistCopay':
-      return String(pick(SPECIALIST_COPAY_VALUES.filter((v) => String(v) !== current), rng))
+      return String(
+        pick(
+          numberPoolOf(content, 'SPECIALIST_COPAY_VALUES').filter((v) => String(v) !== current),
+          rng,
+        ),
+      )
     case 'outOfPocketMax':
-      return String(pick(OOP_MAX_VALUES.filter((v) => String(v) !== current), rng))
+      return String(
+        pick(
+          numberPoolOf(content, 'OOP_MAX_VALUES').filter((v) => String(v) !== current),
+          rng,
+        ),
+      )
     case 'coinsurance':
-      return pick(COINSURANCE_VALUES.filter((v) => v !== current), rng)
+      return pick(
+        poolOf(content, 'COINSURANCE_VALUES').filter((v) => v !== current),
+        rng,
+      )
     case 'authorizationNumber':
-      return generateAuthNumber(rng)
+      return generateAuthNumber(rng, content)
     case 'referenceNumber':
       return generateReferenceNumber(rng)
     case 'memberId':
@@ -308,13 +311,18 @@ function correctedValue(key: AudioFieldKey, current: string, rng: Rng): string {
  * @param config difficulty configuration — editable by trainers in Settings
  * @param seed   optional seed for reproducible scenarios (used in tests/demos)
  */
-export function generateScenario(config: AudioLevelConfig, seed?: number): AudioScenario {
+export function generateScenario(
+  config: AudioLevelConfig,
+  seed?: number,
+  content?: ScenarioContent,
+): AudioScenario {
   const rng = createRng(seed ?? Math.floor(Math.random() * 2 ** 31))
   const phonetic = config.phoneticIds
-  const values = generateValues(rng, phonetic)
+  const values = generateValues(rng, phonetic, content)
 
   // ---- Field roster ------------------------------------------------------
-  const roster = LEVEL_FIELDS[config.level] ?? LEVEL_FIELDS[1]
+  const levelFields = content?.levelFields ?? DEFAULT_LEVEL_FIELDS
+  const roster = levelFields[config.level] ?? DEFAULT_LEVEL_FIELDS[1]
   const formFields = roster.slice(0, Math.max(config.fieldCount, 4))
 
   // ---- Corrections -------------------------------------------------------
@@ -325,7 +333,7 @@ export function generateScenario(config: AudioLevelConfig, seed?: number): Audio
 
   const corrections: ScenarioCorrection[] = correctionTargets.map((key) => {
     const from = values[key]
-    const to = correctedValue(key, from, rng)
+    const to = correctedValue(key, from, rng, content)
     values[key] = to // the corrected value is the expected answer
     return { field: key, from, to, segmentIndex: -1 }
   })
@@ -359,6 +367,7 @@ export function generateScenario(config: AudioLevelConfig, seed?: number): Audio
     phonetic,
     fillerCount: config.fillerSegments,
     rng,
+    content,
   })
 
   const script = segments.map((s) => s.text).join(' ')
@@ -372,6 +381,7 @@ export function generateScenario(config: AudioLevelConfig, seed?: number): Audio
     formFields,
     values,
     rng,
+    content,
   )
 
   return {
@@ -416,6 +426,7 @@ interface BuildSegmentsArgs {
   phonetic: boolean
   fillerCount: number
   rng: Rng
+  content?: ScenarioContent
 }
 
 function buildSegments({
@@ -425,12 +436,13 @@ function buildSegments({
   phonetic,
   fillerCount,
   rng,
+  content,
 }: BuildSegmentsArgs): ScriptSegment[] {
   const segments: ScriptSegment[] = []
 
   segments.push({
     id: uid('seg'),
-    text: pick(INTRO_LINES, rng),
+    text: pick(poolOf(content, 'INTRO_LINES'), rng),
     fields: [],
     pauseAfterMs: 700,
     kind: 'intro',
@@ -449,7 +461,7 @@ function buildSegments({
     if (fillerAt.has(index)) {
       segments.push({
         id: uid('seg'),
-        text: pick(FILLER_LINES, rng),
+        text: pick(poolOf(content, 'FILLER_LINES'), rng),
         fields: [],
         pauseAfterMs: 500,
         kind: 'filler',
@@ -496,7 +508,7 @@ function buildSegments({
 
   segments.push({
     id: uid('seg'),
-    text: pick(OUTRO_LINES, rng),
+    text: pick(poolOf(content, 'OUTRO_LINES'), rng),
     fields: [],
     pauseAfterMs: 0,
     kind: 'outro',
@@ -578,6 +590,7 @@ function buildVerificationPrompts(
   fields: AudioFieldKey[],
   values: Record<AudioFieldKey, string>,
   rng: Rng,
+  content?: ScenarioContent,
 ): VerificationPrompt[] {
   if (count <= 0) return []
 
@@ -598,7 +611,12 @@ function buildVerificationPrompts(
             id: uid('vp'),
             question: 'What coinsurance percentage was stated?',
             options: shuffle(
-              [values.coinsurance, ...COINSURANCE_VALUES.filter((v) => v !== values.coinsurance).slice(0, 2)],
+              [
+                values.coinsurance,
+                ...poolOf(content, 'COINSURANCE_VALUES')
+                  .filter((v) => v !== values.coinsurance)
+                  .slice(0, 2),
+              ],
               rng,
             ),
             correctAnswer: values.coinsurance,
@@ -613,7 +631,8 @@ function buildVerificationPrompts(
             options: shuffle(
               [
                 `$${Number(values.deductible).toLocaleString()}`,
-                ...DEDUCTIBLE_VALUES.filter((v) => String(v) !== values.deductible)
+                ...numberPoolOf(content, 'DEDUCTIBLE_VALUES')
+                  .filter((v) => String(v) !== values.deductible)
                   .slice(0, 2)
                   .map((v) => `$${v.toLocaleString()}`),
               ],
@@ -636,7 +655,7 @@ function buildVerificationPrompts(
             id: uid('vp'),
             question: 'Confirm the member name you have captured.',
             options: shuffle(
-              [values.memberName, generateName(rng), generateName(rng)],
+              [values.memberName, generateName(rng, content), generateName(rng, content)],
               rng,
             ),
             correctAnswer: values.memberName,

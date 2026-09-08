@@ -30,6 +30,7 @@ const TrainerCandidateDetail = React.lazy(
 )
 const TrainerSettingsPage = React.lazy(() => import('@/pages/trainer/TrainerSettings'))
 const UserManagement = React.lazy(() => import('@/pages/trainer/UserManagement'))
+const ContentManager = React.lazy(() => import('@/pages/trainer/ContentManager'))
 
 /**
  * Route map.
@@ -211,6 +212,16 @@ export default function App() {
             <RequireStaff adminOnly>
               <AppShell>
                 <UserManagement />
+              </AppShell>
+            </RequireStaff>
+          }
+        />
+        <Route
+          path="/trainer/content"
+          element={
+            <RequireStaff adminOnly>
+              <AppShell>
+                <ContentManager />
               </AppShell>
             </RequireStaff>
           }

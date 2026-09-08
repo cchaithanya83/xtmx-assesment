@@ -17,6 +17,7 @@ import {
   Menu,
   Settings,
   ShieldCheck,
+  FileText,
   UserCog,
   X,
 } from 'lucide-react'
@@ -83,6 +84,7 @@ const TRAINER_NAV: NavItem[] = [
 
 /** Admin-only nav, appended to TRAINER_NAV when the account is an admin. */
 const ADMIN_NAV: NavItem[] = [
+  { to: '/trainer/content', label: 'Assessment Content', icon: <FileText className="size-4" /> },
   { to: '/trainer/users', label: 'User Management', icon: <UserCog className="size-4" /> },
 ]
 

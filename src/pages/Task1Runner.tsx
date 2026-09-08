@@ -118,9 +118,14 @@ export default function Task1Runner() {
   }, [started, state.finished])
 
   const remaining = Math.max(0, assignment.timeLimitSeconds - elapsed)
+  // Same formula the server will use, so the live number and the recorded
+  // score agree instead of jumping when the result screen appears.
   const metrics = React.useMemo(
-    () => computeMetrics(state, Math.max(elapsed, state.startedAt ? elapsed : 0)),
-    [state, elapsed],
+    () =>
+      computeMetrics(state, Math.max(elapsed, state.startedAt ? elapsed : 0), {
+        backspaceWeight: settings.backspacePenaltyWeight,
+      }),
+    [state, elapsed, settings.backspacePenaltyWeight],
   )
   const cells = React.useMemo(() => buildComparison(state), [state])
 
@@ -141,6 +146,8 @@ export default function Task1Runner() {
         await submitAttempt({
           sessionId: activeSession.sessionId,
           typedText: typedRef.current,
+          // The engine cannot see these from the final text, so report them.
+          backspaces: state.backspaces,
           integrity: {
             ...integrity.log,
             events: [
@@ -157,7 +164,7 @@ export default function Task1Runner() {
         setSubmitError((err as Error).message)
       }
     },
-    [activeSession, integrity.log, submitAttempt, navigate],
+    [activeSession, state.backspaces, integrity.log, submitAttempt, navigate],
   )
 
   /* ---- Auto-submit on completion or timeout ---------------------------- */

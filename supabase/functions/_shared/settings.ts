@@ -82,6 +82,7 @@ export const DEFAULT_SETTINGS: TrainerSettings = {
   minAccuracy: 85,
   passingScore: 75,
   minCompletion: 95,
+  backspacePenaltyWeight: 0.2,
   wpmBands: DEFAULT_WPM_BANDS,
   pauseThresholdMs: 3000,
 

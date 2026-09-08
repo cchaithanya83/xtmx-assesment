@@ -103,11 +103,20 @@ create table if not exists public.assessment_sessions (
   -- Task 1: which passage was issued. Task 2: the full generated scenario,
   -- answer key included. Never serialised to a client response.
   passage_id     text,
+  -- Task 1: a full snapshot of the passage as issued. Content is editable now,
+  -- so re-reading it at submit time would score a candidate against text they
+  -- never saw. Task 2 already worked this way via `scenario`.
+  passage        jsonb,
   scenario       jsonb,
   started_at     timestamptz not null default now(),
   expires_at     timestamptz not null,
   consumed_at    timestamptz
 );
+
+-- Upgrade path: `create table if not exists` above is a no-op on an existing
+-- database, so the snapshot column has to be added explicitly.
+alter table public.assessment_sessions
+  add column if not exists passage jsonb;
 
 create index if not exists sessions_candidate_idx on public.assessment_sessions (candidate_id);
 create index if not exists sessions_open_idx
@@ -170,6 +179,62 @@ create table if not exists public.trainer_settings (
   id         text primary key default 'global',
   payload    jsonb not null,
   updated_at timestamptz not null default now()
+);
+
+-- ===========================================================================
+-- Editable assessment content
+-- ===========================================================================
+-- Passages, data pools and the per-level field roster used to live in TypeScript
+-- constants, which meant a function redeploy to fix a typo. They now live here
+-- and are managed from the admin Content screen.
+--
+-- The TypeScript constants in supabase/functions/_shared are still the factory
+-- defaults: the server seeds these tables from them on first read, and the
+-- admin screen can reset back to them. That keeps ONE source of truth for the
+-- starting content rather than duplicating every passage into this file.
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.passages (
+  id            text primary key,
+  assignment_id smallint not null check (assignment_id between 1 and 5),
+  label         text not null,
+  kind          text not null default 'prose' check (kind in ('prose', 'structured', 'mixed')),
+  body          text not null,
+  -- Deactivated passages stay for audit and for sessions that referenced them,
+  -- but are never issued again.
+  active        boolean not null default true,
+  sort_order    integer not null default 0,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  updated_by    uuid
+);
+
+create index if not exists passages_assignment_idx
+  on public.passages (assignment_id, sort_order)
+  where active;
+
+-- Randomised content pools for the Task 2 scenario generator.
+-- `items` is a JSON array of strings; numeric pools are coerced on read.
+-- (Named `items` rather than `values` — VALUES is a reserved word in SQL and
+-- would need quoting at every use site.)
+create table if not exists public.content_pools (
+  key        text primary key,
+  label      text not null default '',
+  kind       text not null default 'text' check (kind in ('text', 'number')),
+  items      jsonb not null default '[]'::jsonb,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  -- An empty pool would make the generator produce undefined values.
+  constraint content_pools_non_empty check (jsonb_array_length(items) > 0)
+);
+
+-- Which fields each audio level asks for, in form order.
+create table if not exists public.level_fields (
+  level      smallint primary key check (level between 1 and 5),
+  field_keys jsonb not null,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  constraint level_fields_non_empty check (jsonb_array_length(field_keys) >= 4)
 );
 
 -- ===========================================================================
@@ -258,6 +323,9 @@ alter table public.assessment_sessions enable row level security;
 alter table public.attempts            enable row level security;
 alter table public.certifications      enable row level security;
 alter table public.trainer_settings    enable row level security;
+alter table public.passages            enable row level security;
+alter table public.content_pools       enable row level security;
+alter table public.level_fields        enable row level security;
 
 -- FORCE ROW LEVEL SECURITY is deliberately NOT used. It would apply RLS to the
 -- table owner as well, which locks the Dashboard SQL Editor out of your own

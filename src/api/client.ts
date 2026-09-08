@@ -282,6 +282,7 @@ export const assessments = {
   submit(input: {
     sessionId: string
     typedText?: string
+    backspaces?: number
     answers?: Record<string, string>
     telemetry?: unknown
     integrity?: unknown
@@ -422,4 +423,71 @@ export const admin = {
 
   demoData: (action: 'seed' | 'clear'): Promise<{ ok: true; candidates: number }> =>
     request('/admin/demo-data', { method: 'POST', body: { action } }),
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Editable assessment content (admin only)                                  */
+/* -------------------------------------------------------------------------- */
+
+export interface ContentPassage {
+  id: string
+  assignmentId: number
+  label: string
+  kind: 'prose' | 'structured' | 'mixed'
+  text: string
+  active: boolean
+  sortOrder: number
+}
+
+export interface ContentPool {
+  key: string
+  label: string
+  kind: 'text' | 'number'
+  hint: string
+  items: string[]
+}
+
+export interface ContentResponse {
+  passages: ContentPassage[]
+  pools: ContentPool[]
+  levelFields: Record<string, string[]>
+  selectableFields: { key: string; label: string; critical: boolean }[]
+}
+
+export const content = {
+  get: (): Promise<ContentResponse> => request('/admin/content'),
+
+  createPassage: (input: {
+    assignmentId: number
+    label: string
+    kind: string
+    text: string
+  }): Promise<unknown> => request('/admin/content/passages', { method: 'POST', body: input }),
+
+  updatePassage: (
+    id: string,
+    patch: {
+      label?: string
+      kind?: string
+      text?: string
+      active?: boolean
+      sortOrder?: number
+    },
+  ): Promise<unknown> =>
+    request(`/admin/content/passages/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch }),
+
+  deletePassage: (id: string): Promise<{ ok: true }> =>
+    request(`/admin/content/passages/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  updatePool: (key: string, items: string[]): Promise<{ ok: true }> =>
+    request(`/admin/content/pools/${encodeURIComponent(key)}`, {
+      method: 'PATCH',
+      body: { items },
+    }),
+
+  updateLevelFields: (level: number, fieldKeys: string[]): Promise<{ ok: true }> =>
+    request(`/admin/content/level-fields/${level}`, { method: 'PATCH', body: { fieldKeys } }),
+
+  reset: (target: 'passages' | 'pools' | 'levelFields'): Promise<{ ok: true; restored: number }> =>
+    request('/admin/content/reset', { method: 'POST', body: { target } }),
 }

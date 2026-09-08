@@ -32,6 +32,16 @@ import {
   touchCandidate,
 } from '../_server/repo.ts'
 import { abandonAssessment, startAssessment, submitAssessment } from './assessments.ts'
+import {
+  listAllPassages,
+  listPools,
+  resolveLevelFields,
+  validateLevelFields,
+  validatePassage,
+  validatePool,
+} from '../_server/content.ts'
+import { DEFAULT_LEVEL_FIELDS, POOL_DEFAULTS, SELECTABLE_FIELDS } from '../_shared/content.ts'
+import { PASSAGE_POOLS } from '../_shared/passages.ts'
 import { computeAssessmentResult, deriveProgress } from '../_shared/certification.ts'
 import { getAssignment } from '../_shared/tasks.ts'
 import { buildSeedWorkspace } from '../_shared/seed.ts'
@@ -474,6 +484,229 @@ router.post('/admin/demo-data', async ({ ctx, body }) => {
   }
 
   return json({ ok: true, candidates: seeded.candidates.length, attempts: seeded.attempts.length })
+})
+
+/* ---- Admin: assessment content ----------------------------------------- */
+
+/**
+ * Everything the Content screen needs, in one call: passages, data pools, the
+ * per-level field roster, and the catalogue of selectable fields.
+ *
+ * Admin-only. Content changes alter what certification means, so they sit with
+ * the same role that manages accounts — trainers keep threshold configuration.
+ */
+router.get('/admin/content', async ({ ctx }) => {
+  requireAdmin(ctx)
+  const [passages, pools, levelFields] = await Promise.all([
+    listAllPassages(ctx.db),
+    listPools(ctx.db),
+    resolveLevelFields(ctx.db),
+  ])
+  return json({
+    passages,
+    pools: pools.map((p) => ({
+      ...p,
+      hint: POOL_DEFAULTS[p.key as keyof typeof POOL_DEFAULTS]?.hint ?? '',
+    })),
+    levelFields,
+    selectableFields: SELECTABLE_FIELDS,
+  })
+})
+
+router.post('/admin/content/passages', async ({ ctx, body }) => {
+  requireAdmin(ctx)
+  const input = await body<{
+    assignmentId?: number
+    label?: string
+    kind?: string
+    text?: string
+  }>()
+  validatePassage(input)
+
+  const { data, error } = await ctx.db
+    .from('passages')
+    .insert({
+      id: `p_${uid()}`,
+      assignment_id: input.assignmentId,
+      label: input.label!.trim(),
+      kind: input.kind ?? 'prose',
+      body: input.text!,
+      active: true,
+      sort_order: 999,
+      updated_by: ctx.profile.id,
+    })
+    .select('*')
+    .maybeSingle()
+  if (error) throw error
+  return json({ passage: data }, 201)
+})
+
+router.patch('/admin/content/passages/:id', async ({ ctx, params, body }) => {
+  requireAdmin(ctx)
+  const input = await body<{
+    label?: string
+    kind?: string
+    text?: string
+    active?: boolean
+    sortOrder?: number
+  }>()
+
+  // Only validate the text when it is actually being changed.
+  if (input.text !== undefined || input.label !== undefined) {
+    const { data: current } = await ctx.db
+      .from('passages')
+      .select('label, body')
+      .eq('id', params.id)
+      .maybeSingle()
+    validatePassage({
+      label: input.label ?? (current?.label as string),
+      text: input.text ?? (current?.body as string),
+      kind: input.kind,
+    })
+  }
+
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString(), updated_by: ctx.profile.id }
+  if (input.label !== undefined) patch.label = input.label.trim()
+  if (input.kind !== undefined) patch.kind = input.kind
+  if (input.text !== undefined) patch.body = input.text
+  if (input.active !== undefined) patch.active = input.active
+  if (input.sortOrder !== undefined) patch.sort_order = input.sortOrder
+
+  const { data, error } = await ctx.db
+    .from('passages')
+    .update(patch)
+    .eq('id', params.id)
+    .select('*')
+    .maybeSingle()
+  if (error) throw error
+  if (!data) throw notFound('Passage not found')
+  return json({ passage: data })
+})
+
+/**
+ * Removes a passage.
+ *
+ * Refuses if it would leave an assignment with fewer than two active passages —
+ * a single-passage pool means every retry serves the same text, which defeats
+ * the point of rotation.
+ */
+router.delete('/admin/content/passages/:id', async ({ ctx, params }) => {
+  requireAdmin(ctx)
+
+  const { data: target } = await ctx.db
+    .from('passages')
+    .select('assignment_id, active')
+    .eq('id', params.id)
+    .maybeSingle()
+  if (!target) throw notFound('Passage not found')
+
+  if (target.active) {
+    const { count } = await ctx.db
+      .from('passages')
+      .select('id', { count: 'exact', head: true })
+      .eq('assignment_id', target.assignment_id)
+      .eq('active', true)
+    if ((count ?? 0) <= 2) {
+      throw conflict(
+        'Keep at least two active passages per assignment, so retries do not repeat the same text.',
+      )
+    }
+  }
+
+  const { error } = await ctx.db.from('passages').delete().eq('id', params.id)
+  if (error) throw error
+  return json({ ok: true })
+})
+
+router.patch('/admin/content/pools/:key', async ({ ctx, params, body }) => {
+  requireAdmin(ctx)
+  const { items } = await body<{ items?: unknown }>()
+  validatePool(params.key, items)
+
+  const def = POOL_DEFAULTS[params.key as keyof typeof POOL_DEFAULTS]
+  const { error } = await ctx.db.from('content_pools').upsert({
+    key: params.key,
+    label: def.label,
+    kind: def.kind,
+    items: (items as string[]).map((v) => v.trim()),
+    updated_at: new Date().toISOString(),
+    updated_by: ctx.profile.id,
+  })
+  if (error) throw error
+  return json({ ok: true })
+})
+
+router.patch('/admin/content/level-fields/:level', async ({ ctx, params, body }) => {
+  requireAdmin(ctx)
+  const { fieldKeys } = await body<{ fieldKeys?: unknown }>()
+  validateLevelFields(params.level, fieldKeys)
+
+  const { error } = await ctx.db.from('level_fields').upsert({
+    level: Number(params.level),
+    field_keys: fieldKeys,
+    updated_at: new Date().toISOString(),
+    updated_by: ctx.profile.id,
+  })
+  if (error) throw error
+  return json({ ok: true })
+})
+
+/** Restores one content area to the values shipped with the release. */
+router.post('/admin/content/reset', async ({ ctx, body }) => {
+  requireAdmin(ctx)
+  const { target } = await body<{ target?: 'passages' | 'pools' | 'levelFields' }>()
+
+  if (target === 'passages') {
+    await ctx.db.from('passages').delete().neq('id', '')
+    const rows: Record<string, unknown>[] = []
+    for (const [assignmentId, pool] of Object.entries(PASSAGE_POOLS)) {
+      pool.forEach((p, i) => {
+        rows.push({
+          id: p.id,
+          assignment_id: Number(assignmentId),
+          label: p.label,
+          kind: p.kind,
+          body: p.text,
+          active: true,
+          sort_order: i,
+          updated_by: ctx.profile.id,
+        })
+      })
+    }
+    const { error } = await ctx.db.from('passages').insert(rows)
+    if (error) throw error
+    return json({ ok: true, restored: rows.length })
+  }
+
+  if (target === 'pools') {
+    const { error } = await ctx.db.from('content_pools').upsert(
+      Object.entries(POOL_DEFAULTS).map(([key, def]) => ({
+        key,
+        label: def.label,
+        kind: def.kind,
+        items: def.items,
+        updated_at: new Date().toISOString(),
+        updated_by: ctx.profile.id,
+      })),
+    )
+    if (error) throw error
+    return json({ ok: true, restored: Object.keys(POOL_DEFAULTS).length })
+  }
+
+  if (target === 'levelFields') {
+    const { error } = await ctx.db.from('level_fields').upsert(
+      Object.entries(DEFAULT_LEVEL_FIELDS).map(([level, keys]) => ({
+        level: Number(level),
+        field_keys: keys,
+        updated_at: new Date().toISOString(),
+        updated_by: ctx.profile.id,
+      })),
+    )
+    if (error) throw error
+    return json({ ok: true, restored: 5 })
+  }
+
+  throw badRequest('target must be passages, pools or levelFields')
 })
 
 /* ---- Bootstrap --------------------------------------------------------- */

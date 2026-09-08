@@ -18,7 +18,7 @@ export const A1_PASSAGES: TypingPassage[] = [
     id: 'a1-p1',
     label: 'Operations Briefing',
     kind: 'prose',
-    text: 'Thank you for joining the operations team. As an AI Operator you will support live service calls by capturing accurate information while the conversation is still in progress. Your primary responsibility is to record what is said clearly, completely, and without delay. Speed matters, but accuracy always matters more. A single mistyped digit can route a claim to the wrong department and add several days to the resolution timeline. Take a steady pace, keep your hands on the home row, and read one phrase ahead of what you are typing.',
+    text: 'Thank you for joining the operator team. As an AI Operator you will support live service calls by capturing accurate information while the conversation is still in progress. Your primary responsibility is to record what is said clearly, completely, and without delay. Speed matters, but accuracy always matters more. A single mistyped digit can route a claim to the wrong department and add several days to the resolution timeline. Take a steady pace, keep your hands on the home row, and read one phrase ahead of what you are typing.',
   },
   {
     id: 'a1-p2',

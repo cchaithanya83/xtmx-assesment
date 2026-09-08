@@ -134,7 +134,15 @@ export function applyInput(
   }
 
   next.typed = nextTyped
-  if (nextTyped.length >= next.source.length) {
+
+  // Auto-finish only on a *clean* completion.
+  //
+  // Finishing on length alone was unfair: mistyping the final character ended
+  // the attempt instantly, with no chance to correct it. Now reaching the end
+  // with errors still present leaves the candidate in control — they keep
+  // typing, correct what they need to, and submit when ready (or the timer
+  // does it for them).
+  if (nextTyped.length >= next.source.length && nextTyped.startsWith(next.source)) {
     next.finished = true
   }
   return next
@@ -163,8 +171,40 @@ const DATA_CHAR = /[0-9$%@./\-()]/
  */
 export const MAX_PLAUSIBLE_WPM = 250
 
-export function computeMetrics(state: TypingState, elapsedSeconds: number): TypingMetrics {
+export interface MetricsOptions {
+  /** Cost of a backspace relative to an uncorrected error. Default 0.2. */
+  backspaceWeight?: number
+  /**
+   * Overrides the backspace count.
+   *
+   * The server replays a submission as a single input event, so it observes no
+   * backspaces of its own and takes the client's count. See the note in
+   * `api/assessments.ts` about what that does and does not allow.
+   */
+  backspaces?: number
+}
+
+/**
+ * Derives the reported metrics.
+ *
+ * Accuracy is deliberately character-based rather than keystroke-based, so the
+ * live readout during an assessment and the score recorded afterwards are the
+ * same number:
+ *
+ *     accuracy = correctCharacters / (charactersTyped + w * backspaces)
+ *
+ * A wrong character left in place costs a full point of denominator without
+ * contributing to the numerator. A wrong character that gets fixed costs `w`
+ * instead — cheaper than leaving it, but no longer free.
+ */
+export function computeMetrics(
+  state: TypingState,
+  elapsedSeconds: number,
+  options: MetricsOptions = {},
+): TypingMetrics {
   const minutes = Math.max(elapsedSeconds, 1) / 60
+  const backspaceWeight = options.backspaceWeight ?? 0.2
+  const backspaces = options.backspaces ?? state.backspaces
 
   let correctCharacters = 0
   let uncorrectedErrors = 0
@@ -190,8 +230,11 @@ export function computeMetrics(state: TypingState, elapsedSeconds: number): Typi
 
   const rawWpm = state.totalKeystrokes / 5 / minutes
   const wpm = correctCharacters / 5 / minutes
-  const accuracy =
-    state.totalKeystrokes === 0 ? 0 : (state.correctKeystrokes / state.totalKeystrokes) * 100
+
+  // Denominator is the work actually performed: every character still present,
+  // plus a weighted charge for each correction.
+  const effort = state.typed.length + backspaceWeight * backspaces
+  const accuracy = effort === 0 ? 0 : (correctCharacters / effort) * 100
   const completionPercentage =
     state.source.length === 0
       ? 0
@@ -207,7 +250,7 @@ export function computeMetrics(state: TypingState, elapsedSeconds: number): Typi
     incorrectKeystrokes: state.incorrectKeystrokes,
     correctedErrors: state.correctedErrors,
     uncorrectedErrors,
-    backspaces: state.backspaces,
+    backspaces,
     correctCharacters,
     elapsedSeconds: Math.round(elapsedSeconds),
     completionPercentage: Math.round(completionPercentage * 10) / 10,

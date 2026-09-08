@@ -101,6 +101,8 @@ export const DEFAULT_SETTINGS: TrainerSettings = {
   minCriticalAccuracy: 85,
   replayAllowed: false,
   pauseAllowed: false,
+  seekAllowed: false,
+  speedControlAllowed: false,
   playbackSpeed: 1,
   voiceURI: null,
   audioLevels: DEFAULT_AUDIO_LEVELS,

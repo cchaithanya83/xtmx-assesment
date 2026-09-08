@@ -294,6 +294,18 @@ export default function TrainerSettingsPage() {
               onChange={(v) => set('replayAllowed', v)}
             />
             <ToggleRow
+              label="Allow seeking during assessment"
+              description="Lets a candidate scrub the audio in certification mode. Off by default — someone who can jump back over a line is no longer being measured on real-time listening. Practice mode always allows it."
+              checked={draft.seekAllowed}
+              onChange={(v) => set('seekAllowed', v)}
+            />
+            <ToggleRow
+              label="Allow speed control during assessment"
+              description="Lets a candidate change playback rate in certification mode. Off by default, for the same reason. Practice mode always allows it."
+              checked={draft.speedControlAllowed}
+              onChange={(v) => set('speedControlAllowed', v)}
+            />
+            <ToggleRow
               label="Allow pause during assessment"
               description="When off, the call runs continuously — including during verification prompts."
               checked={draft.pauseAllowed}

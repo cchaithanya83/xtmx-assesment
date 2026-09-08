@@ -242,6 +242,12 @@ export class SegmentSpeechEngine {
   private options: TTSOptions = {}
   private audio: HTMLAudioElement | null = null
   private stopped = false
+  /**
+   * Cumulative start offset (ms) of each segment, plus a final total.
+   * Built at load time so seeking can map a progress fraction onto a segment
+   * without re-estimating every time.
+   */
+  private offsets: number[] = []
 
   constructor(provider: TTSProvider = resolveTTSProvider()) {
     this.provider = provider
@@ -268,6 +274,100 @@ export class SegmentSpeechEngine {
     this.options = options
     this.index = 0
     this.stopped = false
+
+    // Weight each segment by its word count plus its trailing pause, then scale
+    // the whole thing to the caller's duration estimate so the offsets and the
+    // progress bar cannot disagree.
+    const weights = segments.map(
+      (seg) => seg.text.trim().split(/\s+/).filter(Boolean).length * 100 + seg.pauseAfterMs,
+    )
+    const total = weights.reduce((a, b) => a + b, 0) || 1
+    this.offsets = [0]
+    let acc = 0
+    for (const w of weights) {
+      acc += (w / total) * this.durationMs
+      this.offsets.push(acc)
+    }
+  }
+
+  /** Segment boundaries as progress fractions, for rendering seek ticks. */
+  get segmentMarkers(): number[] {
+    if (this.durationMs <= 0) return []
+    return this.offsets.slice(0, -1).map((o) => o / this.durationMs)
+  }
+
+  /**
+   * Jumps to the segment covering `progress` (0–1) and resumes from there.
+   *
+   * Granularity is one segment, not one word — see the note at the top of this
+   * file. The wall clock is rewound to match so `progress` stays truthful.
+   */
+  seek(progress: number, events: SpeechEngineEvents = {}) {
+    if (!this.segments.length) return
+    this.events = { ...this.events, ...events }
+
+    const target = Math.min(0.999, Math.max(0, progress))
+    const targetMs = target * this.durationMs
+
+    // Last segment whose start is at or before the target.
+    //
+    // The epsilon matters: the UI derives its tick positions as
+    // offset / durationMs and hands back position * durationMs, and that round
+    // trip can land a hair BELOW the offset it came from. Without the tolerance,
+    // clicking a tick would sometimes play the previous segment.
+    const EPSILON_MS = 1
+    let index = 0
+    for (let i = 0; i < this.offsets.length - 1; i++) {
+      if (this.offsets[i] <= targetMs + EPSILON_MS) index = i
+      else break
+    }
+
+    const wasPlaying = this.isPlaying
+    this.cancelSpeech()
+    if (this.timer !== null) {
+      window.clearTimeout(this.timer)
+      this.timer = null
+    }
+
+    this.index = index
+    // Anchor the clock to the segment start, so progress lines up with what is
+    // actually about to be spoken rather than where the finger let go.
+    const anchor = this.offsets[index]
+    this.startedAt = performance.now() - anchor
+    this.pausedTotal = 0
+    this.pausedAt = wasPlaying ? null : performance.now()
+    this.stopped = false
+
+    this.events.onProgress?.(anchor / this.durationMs, anchor / 1000)
+
+    if (wasPlaying) {
+      this.startTicking()
+      void this.speakNext()
+    }
+  }
+
+  /**
+   * Changes playback rate. Takes effect from the next segment, because an
+   * utterance's rate is fixed once it starts speaking.
+   */
+  setSpeed(speed: number) {
+    this.options = { ...this.options, speed }
+    if (this.audio) this.audio.playbackRate = speed
+  }
+
+  get speed(): number {
+    return this.options.speed ?? 1
+  }
+
+  /** Stops whatever is currently speaking without tearing down the timeline. */
+  private cancelSpeech() {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel()
+    }
+    if (this.audio) {
+      this.audio.pause()
+      this.audio = null
+    }
   }
 
   play(events: SpeechEngineEvents = {}) {

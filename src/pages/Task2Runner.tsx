@@ -45,6 +45,9 @@ export default function Task2Runner() {
   // Practice mode always allows replay; certification follows the trainer setting.
   const replayAllowed = activeSession?.mode === 'practice' || settings.replayAllowed
   const pauseAllowed = activeSession?.mode === 'practice' || settings.pauseAllowed
+  const seekAllowed = activeSession?.mode === 'practice' || settings.seekAllowed
+  const speedControlAllowed =
+    activeSession?.mode === 'practice' || settings.speedControlAllowed
 
   /* ---- State ------------------------------------------------------------ */
   const [values, setValues] = React.useState<Record<string, string>>({})
@@ -56,6 +59,9 @@ export default function Task2Runner() {
   const [started, setStarted] = React.useState(false)
   const [sessionElapsed, setSessionElapsed] = React.useState(0)
   const [replaysUsed, setReplaysUsed] = React.useState(0)
+  const [speed, setSpeed] = React.useState(settings.playbackSpeed)
+  const [segmentMarkers, setSegmentMarkers] = React.useState<number[]>([])
+  const [seeksUsed, setSeeksUsed] = React.useState(0)
   const [confirmExit, setConfirmExit] = React.useState(false)
   const [submitting, setSubmitting] = React.useState(false)
   const [submitError, setSubmitError] = React.useState<string | null>(null)
@@ -159,6 +165,8 @@ export default function Task2Runner() {
       speed: settings.playbackSpeed,
       voice: settings.voiceURI ?? undefined,
     })
+    setSegmentMarkers(engineRef.current.segmentMarkers)
+    setSpeed(settings.playbackSpeed)
   }, [scenario, settings.playbackSpeed, settings.voiceURI])
 
   /* ---- Session timer ---------------------------------------------------- */
@@ -222,6 +230,26 @@ export default function Task2Runner() {
   const pauseAudio = () => {
     engineRef.current?.pause()
     setIsPlaying(false)
+  }
+
+  /**
+   * Seeking snaps to a segment boundary — browser speech synthesis cannot jump
+   * mid-utterance. Recorded so a trainer can see how much the candidate leaned
+   * on it.
+   */
+  const seekAudio = (p: number) => {
+    if (!engineRef.current || !seekAllowed) return
+    setSeeksUsed((n) => n + 1)
+    // Prompts already fired stay fired: re-triggering them on every scrub would
+    // let a candidate farm the same question repeatedly.
+    engineRef.current.seek(p, { onProgress: handleProgress })
+    setEnded(false)
+  }
+
+  const changeSpeed = (next: number) => {
+    if (!engineRef.current || !speedControlAllowed) return
+    setSpeed(next)
+    engineRef.current.setSpeed(next)
   }
 
   const replayAudio = () => {
@@ -309,10 +337,12 @@ export default function Task2Runner() {
         fields: telemetryRef.current,
         fieldNavigationCount: navCountRef.current,
         totalPauseMs: 0,
+        // Seeks are counted alongside replays: both are listening aids, and a
+        // trainer should be able to see how much help an attempt needed.
+        replaysUsed: replaysUsed + seeksUsed,
         verificationAnswers: answeredPrompts,
         blurCount: integrity.log.blurCount,
         pasteAttempts: integrity.log.pasteAttempts,
-        replaysUsed,
       }
 
       try {
@@ -335,7 +365,16 @@ export default function Task2Runner() {
         setSubmitError((err as Error).message)
       }
     },
-    [activeSession, scenario, answeredPrompts, integrity.log, replaysUsed, submitAttempt, navigate],
+    [
+      activeSession,
+      scenario,
+      answeredPrompts,
+      integrity.log,
+      replaysUsed,
+      seeksUsed,
+      submitAttempt,
+      navigate,
+    ],
   )
 
   React.useEffect(() => {
@@ -452,6 +491,12 @@ export default function Task2Runner() {
               onPlay={playAudio}
               onPause={pauseAudio}
               onReplay={replayAudio}
+              seekAllowed={seekAllowed}
+              onSeek={seekAudio}
+              segmentMarkers={segmentMarkers}
+              speedControlAllowed={speedControlAllowed}
+              speed={speed}
+              onSpeedChange={changeSpeed}
             />
 
             {activePrompt && (
@@ -481,6 +526,14 @@ export default function Task2Runner() {
                     tone={remaining <= 45 ? 'red' : 'navy'}
                   />
                 </div>
+                {(seekAllowed || speedControlAllowed) && (
+                  <div className="flex items-baseline justify-between text-[11px] text-muted-foreground">
+                    <span>Listening aids used</span>
+                    <span className="tabular text-navy-800">
+                      {replaysUsed + seeksUsed}
+                    </span>
+                  </div>
+                )}
                 {scenario.verificationPrompts.length > 0 && (
                   <div className="flex items-baseline justify-between text-[11px] text-muted-foreground">
                     <span>Verification prompts answered</span>

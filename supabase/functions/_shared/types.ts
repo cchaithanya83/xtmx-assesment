@@ -502,6 +502,20 @@ export interface TrainerSettings {
   minCriticalAccuracy: number
   replayAllowed: boolean
   pauseAllowed: boolean
+  /**
+   * Lets the candidate scrub the audio during a CERTIFICATION attempt.
+   *
+   * Off by default, and deliberately so: someone who can jump back over a
+   * segment is no longer being measured on real-time listening, which is the
+   * whole point of Task 2. Practice mode always allows it.
+   */
+  seekAllowed: boolean
+  /**
+   * Lets the candidate change playback speed during a CERTIFICATION attempt.
+   * Off by default for the same reason. Practice mode always allows it.
+   */
+  speedControlAllowed: boolean
+  /** The rate the audio starts at. Candidates may only change it if allowed. */
   playbackSpeed: number
   voiceURI: string | null
   audioLevels: AudioLevelConfig[]

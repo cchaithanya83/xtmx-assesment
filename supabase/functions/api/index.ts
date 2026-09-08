@@ -100,7 +100,9 @@ router.get('/me/progress', async ({ ctx }) => {
   const attempts = await listAttempts(ctx.db, candidateId)
 
   return json({
-    progress: deriveProgress(attempts),
+    progress: deriveProgress(attempts, {
+      requireSequentialUnlock: settings.requireSequentialUnlock,
+    }),
     result: computeAssessmentResult(candidateId, attempts, settings),
     certification: await getCertification(ctx.db, candidateId),
   })
@@ -311,7 +313,9 @@ router.get('/trainer/candidates/:candidateId', async ({ ctx, params }) => {
   return json({
     candidate,
     attempts,
-    progress: deriveProgress(attempts),
+    progress: deriveProgress(attempts, {
+      requireSequentialUnlock: settings.requireSequentialUnlock,
+    }),
     result: computeAssessmentResult(candidate.id, attempts, settings),
     certification: await getCertification(ctx.db, candidate.id),
   })

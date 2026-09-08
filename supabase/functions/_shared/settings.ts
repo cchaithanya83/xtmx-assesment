@@ -114,6 +114,9 @@ export const DEFAULT_SETTINGS: TrainerSettings = {
   minMultitaskingScore: 75,
   verificationPromptFrequency: 3,
 
+  /* Progression */
+  requireSequentialUnlock: true,
+
   /* Retry */
   unlimitedRetries: true,
   maxAttempts: 5,

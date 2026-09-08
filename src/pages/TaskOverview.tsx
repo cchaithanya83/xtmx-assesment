@@ -11,6 +11,7 @@ import {
   Repeat,
   Target,
   TrendingUp,
+  Unlock,
 } from 'lucide-react'
 import type { AssignmentProgress, TaskId } from '@/types'
 import { getTask } from '@/data/tasks'
@@ -94,6 +95,17 @@ export default function TaskOverview() {
           </div>
         }
       />
+
+      {!settings.requireSequentialUnlock && (
+        <p className="mb-4 flex items-start gap-2 rounded-md border border-brand-200 bg-brand-50 px-3 py-2 text-[13px] text-brand-900">
+          <Unlock className="mt-0.5 size-4 shrink-0" />
+          <span>
+            <strong className="font-semibold">Open order.</strong> Your trainer has enabled working
+            through assignments in any order, so nothing is locked. All {task.assignments.length} in
+            this task still need to be passed to certify.
+          </span>
+        </p>
+      )}
 
       {launchError && (
         <p

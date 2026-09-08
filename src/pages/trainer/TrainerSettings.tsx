@@ -3,6 +3,7 @@ import {
   Database,
   Gauge,
   Headphones,
+  Lock,
   RotateCcw,
   Save,
   ShieldCheck,
@@ -516,6 +517,28 @@ export default function TrainerSettingsPage() {
               hint="Overrides the level 5 prompt count"
             />
           </div>
+        </Section>
+
+        {/* ---- Progression ---- */}
+        <Section
+          icon={<Lock className="size-4" />}
+          title="Progression"
+          description="Whether assignments must be completed in order."
+        >
+          <ToggleRow
+            label="Require assignments to be passed in order"
+            description="On: Assignment 2 stays locked until Assignment 1 is passed, and so on through both tasks. Off: every assignment is available immediately, so a candidate stuck on one can keep working and a trainer can diagnose across the whole assessment. This governs advancement only — certification still requires all ten assignments passed."
+            checked={draft.requireSequentialUnlock}
+            onChange={(v) => set('requireSequentialUnlock', v)}
+          />
+          {!draft.requireSequentialUnlock && (
+            <p className="mt-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-900">
+              <ShieldCheck className="mt-0.5 size-4 shrink-0" />
+              Sequential unlocking is off. Candidates can attempt any assignment, including the
+              Task 2 multitasking simulation, without having passed the ones before it. Scores are
+              recorded exactly as normal, and all ten are still required to certify.
+            </p>
+          )}
         </Section>
 
         {/* ---- Retry policy ---- */}

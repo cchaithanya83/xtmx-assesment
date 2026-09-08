@@ -537,6 +537,20 @@ export interface TrainerSettings {
   minMultitaskingScore: number
   verificationPromptFrequency: number
 
+  /* Progression */
+  /**
+   * Whether an assignment stays locked until the previous one is passed.
+   *
+   * Turning this off lets a candidate work through everything in any order —
+   * useful for practice cohorts and for trainers who would rather diagnose
+   * across the whole assessment than have someone stuck on Assignment 2.
+   *
+   * It governs ADVANCEMENT ONLY. Certification still requires all ten
+   * assignments passed, so switching it off cannot produce a certificate that
+   * means less than it did before.
+   */
+  requireSequentialUnlock: boolean
+
   /* Retry */
   unlimitedRetries: boolean
   maxAttempts: number

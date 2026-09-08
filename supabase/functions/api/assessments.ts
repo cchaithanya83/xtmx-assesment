@@ -149,7 +149,9 @@ export async function startAssessment(
   // Sequential unlocking is enforced here, not only in the UI — a hand-crafted
   // request cannot skip ahead to Assignment 5.
   if (mode === 'certification') {
-    const progress = deriveProgress(attempts)
+    const progress = deriveProgress(attempts, {
+      requireSequentialUnlock: settings.requireSequentialUnlock,
+    })
     const target = progress.find((p) => p.taskId === taskId && p.assignmentId === assignmentId)
     if (!target || target.status === 'locked') {
       throw forbidden('That assignment is locked. Pass the previous one first.')

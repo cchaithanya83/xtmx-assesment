@@ -24,7 +24,20 @@ import { average, hashString, makeCertificateId, round } from './core.ts'
  * this is a pure projection, which is what keeps product rules #3 and #4
  * (retries preserve history; trainers see first *and* best) true by construction.
  */
-export function deriveProgress(attempts: Attempt[]): AssignmentProgress[] {
+export interface ProgressOptions {
+  /**
+   * When false, every assignment is available regardless of what has been
+   * passed. Defaults to true so a caller that forgets to pass settings gets
+   * the stricter behaviour rather than the looser one.
+   */
+  requireSequentialUnlock?: boolean
+}
+
+export function deriveProgress(
+  attempts: Attempt[],
+  options: ProgressOptions = {},
+): AssignmentProgress[] {
+  const sequential = options.requireSequentialUnlock ?? true
   const out: AssignmentProgress[] = []
 
   for (const task of TASKS) {
@@ -46,8 +59,9 @@ export function deriveProgress(attempts: Attempt[]): AssignmentProgress[] {
       )
       const passing = rows.find((r) => r.passed) ?? null
 
+      // With sequential unlocking off, nothing is ever gated behind a pass.
       const prevPassed =
-        assignment.id === 1
+        !sequential || assignment.id === 1
           ? true
           : out.some(
               (p) =>
@@ -123,7 +137,12 @@ export function computeAssessmentResult(
   settings: TrainerSettings,
 ): AssessmentResult {
   const certAttempts = attempts.filter((a) => a.mode === 'certification')
-  const progress = deriveProgress(certAttempts)
+  // Passing the setting through keeps `status` consistent with what the
+  // candidate sees. Certification gates below count *passed* assignments, which
+  // is unaffected either way.
+  const progress = deriveProgress(certAttempts, {
+    requireSequentialUnlock: settings.requireSequentialUnlock,
+  })
 
   const bestFor = (taskId: TaskId, assignmentId: number): Attempt | null => {
     const rows = certAttempts.filter(

@@ -211,6 +211,9 @@ on future attempts:
 
 ## Documentation
 
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — how the server-authoritative design works
+- [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — schema, Edge Function, hosting, troubleshooting
+- [`docs/CONTENT.md`](docs/CONTENT.md) — editing typing passages, audio scenarios and prompts
 - [`docs/SUPABASE_SETUP.md`](docs/SUPABASE_SETUP.md) — database setup, RLS, hardening
 - [`docs/TTS_INTEGRATION.md`](docs/TTS_INTEGRATION.md) — hosted AI voices, proxy, caching
 - [`supabase/schema.sql`](supabase/schema.sql) — schema, indexes, policies

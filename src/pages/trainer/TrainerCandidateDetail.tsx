@@ -34,7 +34,7 @@ import {
   RiskBadge,
   StatusBadge,
 } from '@/components/shared'
-import { Badge, Button, Card, Dialog, Tabs } from '@/components/ui'
+import { Badge, Button, Card, Dialog, Progress, Tabs } from '@/components/ui'
 import { cn, downloadBlob, formatDate, round, toCsv } from '@/lib/utils'
 
 /**
@@ -59,6 +59,38 @@ export default function TrainerCandidateDetail() {
   const [confirmReset, setConfirmReset] = React.useState<
     { taskId: TaskId; assignmentId: number } | 'all' | null
   >(null)
+
+  /**
+   * Which audio fields this candidate misses, across every Task 2 attempt.
+   *
+   * Counted as missed/seen rather than a raw total: a field that only appears
+   * at level 5 would otherwise look better than one asked on every attempt.
+   * Each attempt uses different generated values, so a field that keeps
+   * recurring here is a genuine weakness rather than one unlucky scenario.
+   */
+  const missedFields = React.useMemo(() => {
+    const tally = new Map<
+      string,
+      { key: string; label: string; critical: boolean; seen: number; missed: number; nearMiss: number }
+    >()
+    for (const attempt of detail.data?.attempts ?? []) {
+      for (const field of attempt.fieldResults ?? []) {
+        const row =
+          tally.get(field.key) ??
+          { key: field.key, label: field.label, critical: field.critical, seen: 0, missed: 0, nearMiss: 0 }
+        row.seen += 1
+        if (!field.correct) {
+          row.missed += 1
+          if (!field.skipped && field.similarity >= 0.8) row.nearMiss += 1
+        }
+        tally.set(field.key, row)
+      }
+    }
+    return [...tally.values()]
+      .filter((r) => r.missed > 0)
+      .sort((a, b) => b.missed / b.seen - a.missed / a.seen || b.missed - a.missed)
+      .slice(0, 8)
+  }, [detail.data])
 
   if (detail.loading && !detail.data) {
     return (
@@ -253,6 +285,49 @@ export default function TrainerCandidateDetail() {
       {/* ---- Analytics ---- */}
       {tab === 'overview' && (
         <div className="grid gap-4 lg:grid-cols-2">
+          {missedFields.length > 0 && (
+            <Card className="p-5 lg:col-span-2">
+              <h2 className="mb-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                Most-missed audio fields
+              </h2>
+              <p className="mb-3 text-[12px] text-muted-foreground">
+                Across every Task 2 attempt. A field that keeps appearing here is a coaching
+                target, not bad luck — each attempt uses different values.
+              </p>
+              <ul className="space-y-1.5">
+                {missedFields.map((row) => (
+                  <li
+                    key={row.key}
+                    className="flex items-center gap-3 rounded-md border border-border px-3 py-2"
+                  >
+                    <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                      <span className="truncate text-[13px] font-medium text-navy-800">
+                        {row.label}
+                      </span>
+                      {row.critical && (
+                        <span className="shrink-0 rounded bg-brand-50 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-brand-800">
+                          Critical
+                        </span>
+                      )}
+                    </span>
+                    <span className="w-32 shrink-0">
+                      <Progress
+                        value={(row.missed / row.seen) * 100}
+                        size="sm"
+                        tone={row.missed / row.seen > 0.5 ? 'red' : 'amber'}
+                      />
+                    </span>
+                    <span className="metric-value w-20 shrink-0 text-right text-[12px] text-navy-900">
+                      {row.missed}/{row.seen}
+                    </span>
+                    <span className="w-16 shrink-0 text-right text-[11px] text-muted-foreground">
+                      {row.nearMiss > 0 ? `${row.nearMiss} near` : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
           <Card className="p-5">
             <h2 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
               Attempt number vs score

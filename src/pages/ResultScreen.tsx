@@ -14,6 +14,7 @@ import { explainFailure } from '@/engine/feedback'
 import { findProgress } from '@/engine/certification'
 import {
   FeedbackPanel,
+  FieldComparison,
   GateList,
   Metric,
   PerformanceBadge,
@@ -212,6 +213,12 @@ export default function ResultScreen() {
                   hint={`> ${round(attempt.typingMetrics.totalPauseMs / 1000, 1)}s total`}
                 />
               </div>
+            </Card>
+          )}
+
+          {attempt.fieldResults && attempt.fieldResults.length > 0 && (
+            <Card className="p-5">
+              <FieldComparison fields={attempt.fieldResults} />
             </Card>
           )}
 

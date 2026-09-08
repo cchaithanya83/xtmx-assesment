@@ -566,7 +566,7 @@ function scoreAudioAttempt({
     // The answer key is returned only now that the attempt is closed, so the
     // result screen can show a field-by-field review.
     fieldResults: result.fieldResults,
-  } as Attempt & { fieldResults: typeof result.fieldResults }
+  }
 }
 
 /**

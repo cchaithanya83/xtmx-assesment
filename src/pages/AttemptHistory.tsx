@@ -5,7 +5,14 @@ import { TASKS } from '@/data/tasks'
 import { useAppStore, useCurrentCandidate } from '@/store/appStore'
 import { me } from '@/api/client'
 import { AttemptTrendChart, SpeedAccuracyChart } from '@/components/charts'
-import { EmptyState, FeedbackPanel, GateList, PageHeader } from '@/components/shared'
+import {
+  EmptyState,
+  FeedbackPanel,
+  FieldComparison,
+  FieldComparisonSummary,
+  GateList,
+  PageHeader,
+} from '@/components/shared'
 import { Badge, Button, Card, Tabs } from '@/components/ui'
 import { cn, formatDateTime, formatDuration, round } from '@/lib/utils'
 
@@ -142,6 +149,11 @@ export function AttemptRow({ attempt, dense }: { attempt: Attempt; dense?: boole
           <span className="text-[11px] text-muted-foreground">
             {formatDateTime(attempt.completedAt)}
           </span>
+          {attempt.fieldResults && attempt.fieldResults.length > 0 && (
+            <span className="hidden xl:inline">
+              <FieldComparisonSummary fields={attempt.fieldResults} />
+            </span>
+          )}
         </span>
 
         <span className="flex shrink-0 items-center gap-4 sm:gap-6">
@@ -179,6 +191,15 @@ export function AttemptRow({ attempt, dense }: { attempt: Attempt; dense?: boole
               <GateList gates={attempt.gates} />
             </div>
           </div>
+
+          {attempt.fieldResults && attempt.fieldResults.length > 0 && (
+            <div>
+              <h4 className="mb-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                Field review — what was captured
+              </h4>
+              <FieldComparison fields={attempt.fieldResults} compact />
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-x-6 gap-y-2 rounded-lg border border-border bg-card p-4 sm:grid-cols-4 lg:grid-cols-6">
             <Detail label="Time taken" value={formatDuration(elapsed)} />

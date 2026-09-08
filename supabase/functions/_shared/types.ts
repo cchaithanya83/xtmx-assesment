@@ -332,6 +332,38 @@ export interface GateResult {
   passed: boolean
 }
 
+/**
+ * Per-field outcome of a Task 2 attempt: what was expected against what was
+ * captured.
+ *
+ * Written onto the attempt once it is submitted and closed, so the candidate
+ * and the trainer can both see exactly which values were missed. Safe to
+ * expose: the attempt is finished, and a retry generates a fresh scenario with
+ * different values, so nothing here helps on the next go.
+ */
+export interface FieldResult {
+  key: string
+  label: string
+  expected: string
+  actual: string
+  correct: boolean
+  critical: boolean
+  /** 0–1 similarity, so a near-miss reads differently from a blank. */
+  similarity: number
+  /**
+   * Character edit distance between the normalised expected and actual values.
+   *
+   * Carried alongside `similarity` because a ratio misjudges short strings: one
+   * transposition in a 7-character ID is only 0.71 similar, which looks like a
+   * wild guess, while the same slip in a 25-character provider name is 0.92.
+   * Distance says "two characters out" regardless of length.
+   */
+  editDistance: number
+  skipped: boolean
+  /** Set when the field carried a spoken correction the candidate had to apply. */
+  appliedSpokenCorrection?: boolean
+}
+
 export interface ScoreBreakdown {
   label: string
   earned: number
@@ -377,6 +409,8 @@ export interface Attempt {
   /** Full metric payload — kept for the trainer detail drill-down. */
   typingMetrics?: TypingMetrics
   audioTelemetry?: AudioAttemptTelemetry
+  /** Task 2 only — the field-by-field comparison. */
+  fieldResults?: FieldResult[]
   scenarioId?: string
   passageId?: string
 

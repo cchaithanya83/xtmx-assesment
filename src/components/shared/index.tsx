@@ -1,3 +1,5 @@
+export { FieldComparison, FieldComparisonSummary, outcomeOf } from './FieldComparison'
+
 import * as React from 'react'
 import { AlertTriangle, Check, Minus, ShieldCheck, TrendingDown, TrendingUp, X } from 'lucide-react'
 import type {

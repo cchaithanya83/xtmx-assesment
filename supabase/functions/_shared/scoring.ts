@@ -1,5 +1,6 @@
 import type {
   AudioAttemptTelemetry,
+  FieldResult,
   AudioScenario,
   GateResult,
   ScoreBreakdown,
@@ -7,7 +8,7 @@ import type {
   TypingMetrics,
 } from './types.ts'
 import { TASK1_WEIGHTS, TASK2_WEIGHTS } from './settings.ts'
-import { clamp, normaliseAnswer, round, similarity } from './core.ts'
+import { clamp, levenshtein, normaliseAnswer, round, similarity } from './core.ts'
 
 /* -------------------------------------------------------------------------- */
 /*  Task 1 — typing score                                                      */
@@ -130,6 +131,8 @@ function scaleAboveThreshold(value: number, threshold: number, maxPoints: number
 /*  Task 2 — audio / listening score                                           */
 /* -------------------------------------------------------------------------- */
 
+export type { FieldResult }
+
 export interface Task2ScoreResult {
   score: number
   breakdown: ScoreBreakdown[]
@@ -143,19 +146,6 @@ export interface Task2ScoreResult {
   completionPercentage: number
   /** Per-field correctness, for the result screen's field review table. */
   fieldResults: FieldResult[]
-}
-
-export interface FieldResult {
-  key: string
-  label: string
-  expected: string
-  actual: string
-  correct: boolean
-  critical: boolean
-  /** 0–1 similarity — a near-miss is shown differently from a blank. */
-  similarity: number
-  skipped: boolean
-  appliedSpokenCorrection?: boolean
 }
 
 /**
@@ -189,6 +179,7 @@ export function scoreTask2(
       correct,
       critical: field.critical,
       similarity: similarity(actual, expected),
+      editDistance: levenshtein(actual, expected),
       skipped: raw.trim() === '',
       appliedSpokenCorrection: telem?.appliedSpokenCorrection,
     }

@@ -89,6 +89,8 @@ export const DEFAULT_SETTINGS: TrainerSettings = {
   // so 20 is the gate and 30 is the target.
   minWpm: 20,
   minAccuracy: 85,
+  // Per-attempt floor is minWpm (20); this is the Task 1 average.
+  minAverageWpm: 30,
   passingScore: 75,
   minCompletion: 95,
   backspacePenaltyWeight: 0.2,
@@ -116,6 +118,7 @@ export const DEFAULT_SETTINGS: TrainerSettings = {
 
   /* Progression */
   requireSequentialUnlock: true,
+  requireTask1BeforeTask2: false,
 
   /* Retry */
   unlimitedRetries: true,

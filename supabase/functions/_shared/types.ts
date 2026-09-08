@@ -472,6 +472,16 @@ export interface TrainerSettings {
   /* Typing requirements */
   minWpm: number
   minAccuracy: number
+  /**
+   * Average net WPM required across Task 1, checked when the task is judged as
+   * a whole rather than assignment by assignment.
+   *
+   * Distinct from `minWpm`, which is the per-attempt floor. The floor keeps a
+   * single attempt from counting; this decides whether the candidate types fast
+   * enough overall. Someone who scrapes just over the floor on all five
+   * assignments passes each one and is still not ready.
+   */
+  minAverageWpm: number
   passingScore: number
   /**
    * Minimum share of the passage that must be transcribed to pass Task 1.
@@ -550,6 +560,14 @@ export interface TrainerSettings {
    * means less than it did before.
    */
   requireSequentialUnlock: boolean
+  /**
+   * Holds Task 2 back until Task 1 is complete — all five assignments passed
+   * AND the Task 1 average WPM at or above `minAverageWpm`.
+   *
+   * Off by default: listening and typing are separate competencies, and a
+   * trainer may well want both assessed in the same session.
+   */
+  requireTask1BeforeTask2: boolean
 
   /* Retry */
   unlimitedRetries: boolean

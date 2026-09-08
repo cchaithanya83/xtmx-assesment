@@ -25,6 +25,7 @@ import {
   buildCertification,
   computeAssessmentResult,
   deriveProgress,
+  task1Completion,
 } from '../_shared/certification.ts'
 import { uid } from '../_shared/core.ts'
 import type {
@@ -151,9 +152,22 @@ export async function startAssessment(
   if (mode === 'certification') {
     const progress = deriveProgress(attempts, {
       requireSequentialUnlock: settings.requireSequentialUnlock,
+      requireTask1BeforeTask2: settings.requireTask1BeforeTask2,
+      minAverageWpm: settings.minAverageWpm,
     })
     const target = progress.find((p) => p.taskId === taskId && p.assignmentId === assignmentId)
     if (!target || target.status === 'locked') {
+      // Say which gate is holding them, rather than a generic refusal.
+      if (taskId === 2 && settings.requireTask1BeforeTask2) {
+        const t1 = task1Completion(attempts, settings.minAverageWpm)
+        if (!t1.complete) {
+          throw forbidden(
+            t1.passedAll
+              ? `Task 2 unlocks once your Task 1 average reaches ${settings.minAverageWpm} WPM. Yours is ${t1.averageWpm} WPM.`
+              : 'Task 2 unlocks once all five Task 1 assignments are passed.',
+          )
+        }
+      }
       throw forbidden('That assignment is locked. Pass the previous one first.')
     }
     if (!settings.unlimitedRetries && target.attempts >= settings.maxAttempts) {

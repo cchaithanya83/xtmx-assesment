@@ -31,6 +31,46 @@ export interface ProgressOptions {
    * the stricter behaviour rather than the looser one.
    */
   requireSequentialUnlock?: boolean
+  /** Holds all of Task 2 until Task 1 is complete. Defaults to false. */
+  requireTask1BeforeTask2?: boolean
+  /** Task 1 average WPM required for the cross-task gate. */
+  minAverageWpm?: number
+}
+
+/**
+ * Whether Task 1 is complete: every assignment passed, and the average WPM
+ * across each assignment's best attempt at or above the threshold.
+ *
+ * Exported because the UI needs to explain *which* half is outstanding when
+ * Task 2 is held back.
+ */
+export function task1Completion(
+  attempts: Attempt[],
+  minAverageWpm: number,
+): { passedAll: boolean; averageWpm: number; meetsAverage: boolean; complete: boolean } {
+  const task1 = TASKS[0]
+  const best = task1.assignments
+    .map((a) => {
+      const rows = attempts.filter(
+        (x) => x.taskId === 1 && x.assignmentId === a.id && x.mode === 'certification',
+      )
+      return rows.reduce<Attempt | null>((acc, r) => (!acc || r.score > acc.score ? r : acc), null)
+    })
+    .filter((a): a is Attempt => a !== null)
+
+  const passedAll =
+    task1.assignments.length > 0 &&
+    task1.assignments.every((a) =>
+      attempts.some(
+        (x) => x.taskId === 1 && x.assignmentId === a.id && x.mode === 'certification' && x.passed,
+      ),
+    )
+
+  const wpms = best.map((a) => a.wpm ?? 0).filter((v) => v > 0)
+  const averageWpm = round(average(wpms))
+  const meetsAverage = wpms.length > 0 && averageWpm >= minAverageWpm
+
+  return { passedAll, averageWpm, meetsAverage, complete: passedAll && meetsAverage }
 }
 
 export function deriveProgress(
@@ -38,6 +78,11 @@ export function deriveProgress(
   options: ProgressOptions = {},
 ): AssignmentProgress[] {
   const sequential = options.requireSequentialUnlock ?? true
+  const gateTask2 = options.requireTask1BeforeTask2 ?? false
+  const minAverageWpm = options.minAverageWpm ?? 0
+  const task1Done = gateTask2
+    ? task1Completion(attempts, minAverageWpm).complete
+    : true
   const out: AssignmentProgress[] = []
 
   for (const task of TASKS) {
@@ -70,13 +115,19 @@ export function deriveProgress(
                 p.status === 'passed',
             )
 
+      // Task 2 can be held behind Task 1 entirely. An already-passed
+      // assignment is never re-locked — that would erase visible progress.
+      const crossTaskLocked = task.id === 2 && !task1Done
+
       const status: AssignmentProgress['status'] = passing
         ? 'passed'
-        : prevPassed
-          ? rows.length
-            ? 'in-progress'
-            : 'unlocked'
-          : 'locked'
+        : crossTaskLocked
+          ? 'locked'
+          : prevPassed
+            ? rows.length
+              ? 'in-progress'
+              : 'unlocked'
+            : 'locked'
 
       out.push({
         taskId: task.id,
@@ -142,6 +193,8 @@ export function computeAssessmentResult(
   // is unaffected either way.
   const progress = deriveProgress(certAttempts, {
     requireSequentialUnlock: settings.requireSequentialUnlock,
+    requireTask1BeforeTask2: settings.requireTask1BeforeTask2,
+    minAverageWpm: settings.minAverageWpm,
   })
 
   const bestFor = (taskId: TaskId, assignmentId: number): Attempt | null => {
@@ -203,11 +256,12 @@ export function computeAssessmentResult(
       passed: finalScore >= settings.passingScore,
     },
     {
+      // The Task 1 average, not the per-attempt floor. See `minAverageWpm`.
       label: 'Average typing speed',
       actual: avgWpm,
-      required: settings.minWpm,
+      required: settings.minAverageWpm,
       unit: 'wpm',
-      passed: avgWpm >= settings.minWpm,
+      passed: avgWpm >= settings.minAverageWpm,
     },
     {
       label: 'Typing accuracy',

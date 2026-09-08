@@ -162,7 +162,15 @@ export default function TrainerSettingsPage() {
               min={5}
               max={120}
               onValueChange={(v) => set('minWpm', v)}
-              hint="Net WPM required to pass"
+              hint="Per attempt — the floor"
+            />
+            <NumberField
+              label="Task 1 average WPM"
+              value={draft.minAverageWpm}
+              min={5}
+              max={120}
+              onValueChange={(v) => set('minAverageWpm', v)}
+              hint="Averaged across Task 1"
             />
             <NumberField
               label="Minimum accuracy (%)"
@@ -530,6 +538,12 @@ export default function TrainerSettingsPage() {
             description="On: Assignment 2 stays locked until Assignment 1 is passed, and so on through both tasks. Off: every assignment is available immediately, so a candidate stuck on one can keep working and a trainer can diagnose across the whole assessment. This governs advancement only — certification still requires all ten assignments passed."
             checked={draft.requireSequentialUnlock}
             onChange={(v) => set('requireSequentialUnlock', v)}
+          />
+          <ToggleRow
+            label="Require Task 1 before Task 2"
+            description="Holds all of Task 2 until Task 1 is complete: all five assignments passed AND the Task 1 average WPM at or above the threshold above. Off by default, since typing and listening are separate competencies and are often assessed in the same session."
+            checked={draft.requireTask1BeforeTask2}
+            onChange={(v) => set('requireTask1BeforeTask2', v)}
           />
           {!draft.requireSequentialUnlock && (
             <p className="mt-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-900">

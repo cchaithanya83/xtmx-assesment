@@ -48,6 +48,20 @@ export default function TaskOverview() {
   if (!candidate || !result) return null
 
   const task = getTask(taskId)
+  // Derived from the progress and result the server already computed, rather
+  // than re-deriving from raw attempts the client does not hold. `avgWpm` is
+  // the Task 1 average across best attempts — the same number the server gates
+  // on — so the explanation here cannot disagree with the API's refusal.
+  const task1Passed = progress.filter(
+    (p: AssignmentProgress) => p.taskId === 1 && p.status === 'passed',
+  ).length
+  const task1Ready = {
+    passedAll: task1Passed === getTask(1).assignments.length,
+    averageWpm: result.avgWpm,
+    complete:
+      task1Passed === getTask(1).assignments.length &&
+      result.avgWpm >= settings.minAverageWpm,
+  }
   const taskProgress = progress.filter((p: AssignmentProgress) => p.taskId === taskId)
   const passed = taskProgress.filter((p: AssignmentProgress) => p.status === 'passed').length
   const average = taskId === 1 ? result.task1Average : result.task2Average
@@ -95,6 +109,18 @@ export default function TaskOverview() {
           </div>
         }
       />
+
+      {taskId === 2 && settings.requireTask1BeforeTask2 && !task1Ready.complete && (
+        <p className="mb-4 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-900">
+          <Lock className="mt-0.5 size-4 shrink-0" />
+          <span>
+            <strong className="font-semibold">Task 2 is locked.</strong>{' '}
+            {task1Ready.passedAll
+              ? `Your Task 1 average is ${task1Ready.averageWpm} WPM — it needs to reach ${settings.minAverageWpm} WPM. Retry a Task 1 assignment to raise it.`
+              : `Complete all five Task 1 assignments first, and reach a ${settings.minAverageWpm} WPM average.`}
+          </span>
+        </p>
+      )}
 
       {!settings.requireSequentialUnlock && (
         <p className="mb-4 flex items-start gap-2 rounded-md border border-brand-200 bg-brand-50 px-3 py-2 text-[13px] text-brand-900">

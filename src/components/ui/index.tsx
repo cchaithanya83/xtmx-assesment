@@ -221,6 +221,107 @@ export const Switch = ({ checked, onCheckedChange, disabled, id }: SwitchProps) 
 )
 
 /* -------------------------------------------------------------------------- */
+/*  NumberInput                                                                */
+/* -------------------------------------------------------------------------- */
+
+export interface NumberInputProps
+  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'min' | 'max'> {
+  value: number
+  min: number
+  max: number
+  onValueChange: (value: number) => void
+}
+
+/**
+ * A numeric field you can actually type in.
+ *
+ * The naive approach — parse and clamp on every keystroke — is unusable:
+ * `Number('')` is `0`, so backspacing to empty snaps the field to its minimum,
+ * and typing "30" into a field with a minimum of 20 gets clamped to 20 the
+ * moment you type "3", swallowing the second digit.
+ *
+ * So the raw text is held locally while editing and only committed when it
+ * parses to something inside the range. Out-of-range or half-finished input
+ * stays as text until blur, which clamps and commits. That means you can clear
+ * the field, type a new value, and have it behave.
+ */
+export const NumberInput = React.forwardRef<HTMLInputElement, NumberInputProps>(
+  function NumberInput({ value, min, max, onValueChange, className, ...props }, ref) {
+    const [draft, setDraft] = React.useState<string>(String(value))
+    const [editing, setEditing] = React.useState(false)
+
+    // Track external changes (a reset, a restore-defaults) but never yank the
+    // field out from under someone mid-edit.
+    React.useEffect(() => {
+      if (!editing) setDraft(String(value))
+    }, [value, editing])
+
+    const commit = (raw: string) => {
+      const parsed = Number(raw)
+      if (raw.trim() === '' || !Number.isFinite(parsed)) {
+        // Nothing usable typed — put the last good value back.
+        setDraft(String(value))
+        return
+      }
+      const clamped = Math.min(max, Math.max(min, parsed))
+      setDraft(String(clamped))
+      if (clamped !== value) onValueChange(clamped)
+    }
+
+    return (
+      <Input
+        ref={ref}
+        type="text"
+        inputMode="decimal"
+        value={draft}
+        aria-valuemin={min}
+        aria-valuemax={max}
+        onFocus={(e) => {
+          setEditing(true)
+          props.onFocus?.(e)
+        }}
+        onChange={(e) => {
+          const raw = e.target.value
+          // Digits, one optional decimal point, optional leading minus.
+          if (raw !== '' && !/^-?\d*\.?\d*$/.test(raw)) return
+          setDraft(raw)
+
+          // Commit live only when the value is already valid, so dependent UI
+          // updates as you type without fighting a partial entry.
+          const parsed = Number(raw)
+          if (raw.trim() !== '' && Number.isFinite(parsed) && parsed >= min && parsed <= max) {
+            if (parsed !== value) onValueChange(parsed)
+          }
+        }}
+        onBlur={(e) => {
+          setEditing(false)
+          commit(e.target.value)
+          props.onBlur?.(e)
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            commit((e.target as HTMLInputElement).value)
+            ;(e.target as HTMLInputElement).blur()
+          } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+            // `type="text"` loses the native stepper, so re-add it.
+            e.preventDefault()
+            const step = Number(props.step ?? 1) || 1
+            const base = Number(draft)
+            const next = (Number.isFinite(base) ? base : min) + (e.key === 'ArrowUp' ? step : -step)
+            const clamped = Math.min(max, Math.max(min, Number(next.toFixed(4))))
+            setDraft(String(clamped))
+            if (clamped !== value) onValueChange(clamped)
+          }
+          props.onKeyDown?.(e)
+        }}
+        className={cn('font-mono tabular', className)}
+        {...props}
+      />
+    )
+  },
+)
+
+/* -------------------------------------------------------------------------- */
 /*  Progress                                                                   */
 /* -------------------------------------------------------------------------- */
 

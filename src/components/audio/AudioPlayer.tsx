@@ -18,8 +18,12 @@ import { cn, formatDuration } from '@/lib/utils'
  * whole job.
  */
 
-/** Rates the candidate can pick from, when speed control is allowed. */
-export const PLAYBACK_SPEEDS = [0.75, 0.9, 1, 1.15, 1.3] as const
+/**
+ * Rates the candidate can pick from, when speed control is allowed.
+ * 0.25 is the floor — below that browser speech synthesis becomes hard to
+ * follow rather than easier.
+ */
+export const PLAYBACK_SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5] as const
 
 export interface AudioPlayerProps {
   progress: number

@@ -16,8 +16,16 @@ import { BrowserTTSProvider, resolveTTSProvider, type TTSVoice } from '@/audio/t
 import { useAppStore } from '@/store/appStore'
 import { admin } from '@/api/client'
 import { PageHeader } from '@/components/shared'
-import { Badge, Button, Card, Dialog, Input, Label, Select, Switch } from '@/components/ui'
-import { clamp } from '@/lib/utils'
+import {
+  Badge,
+  Button,
+  Card,
+  Dialog,
+  Label,
+  NumberInput,
+  Select,
+  Switch,
+} from '@/components/ui'
 
 /**
  * Trainer / Admin configuration.
@@ -50,13 +58,6 @@ export default function TrainerSettingsPage() {
 
   const set = <K extends keyof Settings>(key: K, value: Settings[K]) =>
     setDraft((d) => ({ ...d, [key]: value }))
-
-  const num =
-    <K extends keyof Settings>(key: K, min: number, max: number) =>
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const parsed = Number(e.target.value)
-      set(key, clamp(Number.isFinite(parsed) ? parsed : min, min, max) as Settings[K])
-    }
 
   const save = async () => {
     setBusy(true)
@@ -155,25 +156,33 @@ export default function TrainerSettingsPage() {
             <NumberField
               label="Minimum WPM"
               value={draft.minWpm}
-              onChange={num('minWpm', 5, 120)}
+              min={5}
+              max={120}
+              onValueChange={(v) => set('minWpm', v)}
               hint="Net WPM required to pass"
             />
             <NumberField
               label="Minimum accuracy (%)"
               value={draft.minAccuracy}
-              onChange={num('minAccuracy', 50, 100)}
+              min={50}
+              max={100}
+              onValueChange={(v) => set('minAccuracy', v)}
               hint="Keystroke accuracy"
             />
             <NumberField
               label="Passing score"
               value={draft.passingScore}
-              onChange={num('passingScore', 40, 100)}
+              min={40}
+              max={100}
+              onValueChange={(v) => set('passingScore', v)}
               hint="Out of 100, per assignment"
             />
             <NumberField
               label="Minimum completion (%)"
               value={draft.minCompletion}
-              onChange={num('minCompletion', 50, 100)}
+              min={50}
+              max={100}
+              onValueChange={(v) => set('minCompletion', v)}
               hint="Share of the passage that must be transcribed"
             />
           </div>
@@ -201,23 +210,21 @@ export default function TrainerSettingsPage() {
                           : `${band.minWpm}+ WPM`}
                       </td>
                       <td>
-                        <Input
-                          type="number"
+                        <NumberInput
                           value={band.minWpm}
-                          onChange={(e) =>
-                            setBand(i, { minWpm: clamp(Number(e.target.value) || 0, 0, 200) })
-                          }
-                          className="h-8 font-mono"
+                          min={0}
+                          max={200}
+                          onValueChange={(v) => setBand(i, { minWpm: v })}
+                          className="h-8"
                         />
                       </td>
                       <td>
-                        <Input
-                          type="number"
+                        <NumberInput
                           value={band.points}
-                          onChange={(e) =>
-                            setBand(i, { points: clamp(Number(e.target.value) || 0, 0, 30) })
-                          }
-                          className="h-8 font-mono"
+                          min={0}
+                          max={30}
+                          onValueChange={(v) => setBand(i, { points: v })}
+                          className="h-8"
                         />
                       </td>
                     </tr>
@@ -231,7 +238,9 @@ export default function TrainerSettingsPage() {
             <NumberField
               label="Long-pause threshold (ms)"
               value={draft.pauseThresholdMs}
-              onChange={num('pauseThresholdMs', 500, 15000)}
+              min={500}
+              max={15000}
+              onValueChange={(v) => set('pauseThresholdMs', v)}
               hint="Idle gaps longer than this are recorded"
             />
           </div>
@@ -247,12 +256,16 @@ export default function TrainerSettingsPage() {
             <NumberField
               label="Minimum data accuracy (%)"
               value={draft.minDataAccuracy}
-              onChange={num('minDataAccuracy', 50, 100)}
+              min={50}
+              max={100}
+              onValueChange={(v) => set('minDataAccuracy', v)}
             />
             <NumberField
               label="Minimum critical accuracy (%)"
               value={draft.minCriticalAccuracy}
-              onChange={num('minCriticalAccuracy', 50, 100)}
+              min={50}
+              max={100}
+              onValueChange={(v) => set('minCriticalAccuracy', v)}
             />
             <div className="space-y-1.5">
               <Label htmlFor="name-spelling">Spell member names in the audio</Label>
@@ -278,11 +291,11 @@ export default function TrainerSettingsPage() {
             <NumberField
               label="Playback speed"
               value={draft.playbackSpeed}
+              min={0.25}
+              max={2}
               step={0.05}
-              onChange={(e) =>
-                set('playbackSpeed', clamp(Number(e.target.value) || 1, 0.5, 2))
-              }
-              hint="1.0 = normal"
+              onValueChange={(v) => set('playbackSpeed', v)}
+              hint="1.0 = normal · 0.25 = quarter speed"
             />
           </div>
 
@@ -368,55 +381,50 @@ export default function TrainerSettingsPage() {
                       <span className="metric-value text-sm">L{level.level}</span>
                     </td>
                     <td>
-                      <Input
-                        type="number"
+                      <NumberInput
                         value={level.wpmMin}
-                        onChange={(e) =>
-                          setLevel(level.level, { wpmMin: clamp(Number(e.target.value) || 80, 60, 220) })
-                        }
-                        className="h-8 font-mono"
+                        min={60}
+                        max={220}
+                        onValueChange={(v) => setLevel(level.level, { wpmMin: v })}
+                        className="h-8"
                       />
                     </td>
                     <td>
-                      <Input
-                        type="number"
+                      <NumberInput
                         value={level.wpmMax}
-                        onChange={(e) =>
-                          setLevel(level.level, { wpmMax: clamp(Number(e.target.value) || 90, 60, 240) })
-                        }
-                        className="h-8 font-mono"
+                        min={60}
+                        max={240}
+                        onValueChange={(v) => setLevel(level.level, { wpmMax: v })}
+                        className="h-8"
                       />
                     </td>
                     <td>
-                      <Input
-                        type="number"
+                      <NumberInput
                         value={level.fieldCount}
-                        onChange={(e) =>
-                          setLevel(level.level, { fieldCount: clamp(Number(e.target.value) || 4, 3, 15) })
-                        }
-                        className="h-8 font-mono"
+                        min={3}
+                        max={15}
+                        onValueChange={(v) => setLevel(level.level, { fieldCount: v })}
+                        className="h-8"
                       />
                     </td>
                     <td>
-                      <Input
-                        type="number"
+                      <NumberInput
                         value={level.corrections}
-                        onChange={(e) =>
-                          setLevel(level.level, { corrections: clamp(Number(e.target.value) || 0, 0, 5) })
-                        }
-                        className="h-8 font-mono"
+                        min={0}
+                        max={5}
+                        onValueChange={(v) => setLevel(level.level, { corrections: v })}
+                        className="h-8"
                       />
                     </td>
                     <td>
-                      <Input
-                        type="number"
+                      <NumberInput
                         value={level.verificationPrompts}
-                        onChange={(e) =>
-                          setLevel(level.level, {
-                            verificationPrompts: clamp(Number(e.target.value) || 0, 0, 5),
-                          })
+                        min={0}
+                        max={5}
+                        onValueChange={(v) =>
+                          setLevel(level.level, { verificationPrompts: v })
                         }
-                        className="h-8 font-mono"
+                        className="h-8"
                       />
                     </td>
                     <td>
@@ -448,12 +456,16 @@ export default function TrainerSettingsPage() {
             <NumberField
               label="Minimum multitasking score (%)"
               value={draft.minMultitaskingScore}
-              onChange={num('minMultitaskingScore', 40, 100)}
+              min={40}
+              max={100}
+              onValueChange={(v) => set('minMultitaskingScore', v)}
             />
             <NumberField
               label="Verification prompts in Assignment 5"
               value={draft.verificationPromptFrequency}
-              onChange={num('verificationPromptFrequency', 0, 5)}
+              min={0}
+              max={5}
+              onValueChange={(v) => set('verificationPromptFrequency', v)}
               hint="Overrides the level 5 prompt count"
             />
           </div>
@@ -483,13 +495,17 @@ export default function TrainerSettingsPage() {
             <NumberField
               label="Maximum attempts per assignment"
               value={draft.maxAttempts}
-              onChange={num('maxAttempts', 1, 20)}
+              min={1}
+              max={20}
+              onValueChange={(v) => set('maxAttempts', v)}
               disabled={draft.unlimitedRetries}
             />
             <NumberField
               label="Lockout after failure (seconds)"
               value={draft.lockoutSeconds}
-              onChange={num('lockoutSeconds', 0, 3600)}
+              min={0}
+              max={3600}
+              onValueChange={(v) => set('lockoutSeconds', v)}
               hint="0 = retry immediately"
             />
           </div>
@@ -519,7 +535,9 @@ export default function TrainerSettingsPage() {
             <NumberField
               label="Flag for review after N focus losses"
               value={draft.flagBlurThreshold}
-              onChange={num('flagBlurThreshold', 1, 20)}
+              min={1}
+              max={20}
+              onValueChange={(v) => set('flagBlurThreshold', v)}
             />
           </div>
         </Section>
@@ -636,14 +654,18 @@ function Section({
 function NumberField({
   label,
   value,
-  onChange,
+  min,
+  max,
+  onValueChange,
   hint,
   step,
   disabled,
 }: {
   label: string
   value: number
-  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void
+  min: number
+  max: number
+  onValueChange: (value: number) => void
   hint?: string
   step?: number
   disabled?: boolean
@@ -651,13 +673,13 @@ function NumberField({
   return (
     <div className="space-y-1.5">
       <Label>{label}</Label>
-      <Input
-        type="number"
+      <NumberInput
         value={value}
+        min={min}
+        max={max}
         step={step}
-        onChange={onChange}
+        onValueChange={onValueChange}
         disabled={disabled}
-        className="font-mono tabular"
       />
       {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
     </div>

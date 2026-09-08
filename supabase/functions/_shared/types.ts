@@ -515,7 +515,10 @@ export interface TrainerSettings {
    * Off by default for the same reason. Practice mode always allows it.
    */
   speedControlAllowed: boolean
-  /** The rate the audio starts at. Candidates may only change it if allowed. */
+  /**
+   * The rate the audio starts at, 0.25–2. Candidates may only change it if
+   * `speedControlAllowed` is set (practice mode always allows it).
+   */
   playbackSpeed: number
   voiceURI: string | null
   audioLevels: AudioLevelConfig[]

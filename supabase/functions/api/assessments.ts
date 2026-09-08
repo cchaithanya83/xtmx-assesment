@@ -202,6 +202,7 @@ export async function startAssessment(
       pools,
       levelFields,
       nameSpelling: settings.nameSpelling,
+      spellFields: settings.spellFields,
     })
   }
 

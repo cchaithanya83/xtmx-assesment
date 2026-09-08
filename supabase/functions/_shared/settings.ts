@@ -93,6 +93,9 @@ export const DEFAULT_SETTINGS: TrainerSettings = {
   minCompletion: 95,
   backspacePenaltyWeight: 0.2,
   nameSpelling: 'letters',
+  // Every text field that carries letters. Identifiers are excluded because
+  // idToWords already reads them character by character.
+  spellFields: ['memberName', 'provider', 'servicingProvider', 'planName'],
   wpmBands: DEFAULT_WPM_BANDS,
   pauseThresholdMs: 3000,
 

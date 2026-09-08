@@ -166,6 +166,20 @@ export const DEFAULT_LEVEL_FIELDS: Record<number, AudioFieldKey[]> = {
   ],
 }
 
+/**
+ * Fields that can be spelled out.
+ *
+ * Identifiers are absent on purpose — `idToWords` already reads them character
+ * by character, so spelling one again would say it twice.
+ */
+export const SPELLABLE_FIELDS: { key: AudioFieldKey; label: string; note?: string }[] = [
+  { key: 'memberName', label: 'Member Name' },
+  { key: 'provider', label: 'Provider', note: 'Long — roughly doubles that line' },
+  { key: 'servicingProvider', label: 'Servicing Provider', note: 'Long' },
+  { key: 'planName', label: 'Plan Name' },
+  { key: 'networkStatus', label: 'Network Status', note: 'Rarely needed' },
+]
+
 /** Every field key an admin may choose from, with a human label. */
 export const SELECTABLE_FIELDS: { key: AudioFieldKey; label: string; critical: boolean }[] = [
   { key: 'memberName', label: 'Member Name', critical: false },
@@ -197,6 +211,8 @@ export interface ScenarioContent {
   levelFields?: Record<number, AudioFieldKey[]>
   /** Carried here so the generator has one plumbing path for everything. */
   nameSpelling?: SpellingMode
+  /** Which fields to spell out. Empty or omitted means none. */
+  spellFields?: AudioFieldKey[]
 }
 
 /** Resolves a pool, falling back to its factory default. */

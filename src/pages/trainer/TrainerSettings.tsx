@@ -12,10 +12,12 @@ import {
 } from 'lucide-react'
 import type { AudioLevelConfig, TrainerSettings as Settings, WpmScoreBand } from '@/types'
 import { DEFAULT_SETTINGS } from '@/data/settings'
+import { SPELLABLE_FIELDS } from '@shared/content.ts'
 import { BrowserTTSProvider, resolveTTSProvider, type TTSVoice } from '@/audio/tts'
 import { useAppStore } from '@/store/appStore'
 import { admin } from '@/api/client'
 import { PageHeader } from '@/components/shared'
+import { cn } from '@/lib/utils'
 import {
   Badge,
   Button,
@@ -281,12 +283,57 @@ export default function TrainerSettingsPage() {
                 <option value="phonetic">Phonetic — "J as in Juliet, E as in Echo"</option>
               </Select>
               <p className="text-[11px] leading-relaxed text-muted-foreground">
-                Without spelling, a candidate has to guess how an unfamiliar surname is written,
-                which measures luck rather than listening. Real benefits calls spell names
+                Without spelling, a candidate has to guess how an unfamiliar name is written, which
+                measures luck rather than listening. Real benefits calls spell unusual words
                 routinely. Hyphens and apostrophes are named too, since the candidate has to
                 reproduce them.
               </p>
             </div>
+
+            {draft.nameSpelling !== 'none' && (
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label>Which fields get spelled</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {SPELLABLE_FIELDS.map((field) => {
+                    const on = draft.spellFields.includes(field.key)
+                    return (
+                      <button
+                        key={field.key}
+                        type="button"
+                        onClick={() =>
+                          set(
+                            'spellFields',
+                            on
+                              ? draft.spellFields.filter((k) => k !== field.key)
+                              : [...draft.spellFields, field.key],
+                          )
+                        }
+                        title={field.note}
+                        className={cn(
+                          'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[12px] font-medium transition-colors',
+                          on
+                            ? 'border-brand-600 bg-brand-600 text-white'
+                            : 'border-border bg-card text-navy-700 hover:border-brand-300 hover:bg-brand-50',
+                        )}
+                      >
+                        {field.label}
+                        {field.note && (
+                          <span className={cn('text-[9px]', on ? 'opacity-80' : 'text-amber-600')}>
+                            ●
+                          </span>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                  Identifiers are always read character by character, so they are not listed here —
+                  adding one would spell it twice. Fields marked ● are long: spelling
+                  &ldquo;North Valley Medical Center&rdquo; is 21 letters and roughly doubles that
+                  line of audio.
+                </p>
+              </div>
+            )}
 
             <NumberField
               label="Playback speed"

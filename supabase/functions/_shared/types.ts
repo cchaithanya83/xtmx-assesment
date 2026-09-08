@@ -488,13 +488,23 @@ export interface TrainerSettings {
   backspacePenaltyWeight: number
   wpmBands: WpmScoreBand[]
   /**
-   * Whether member names are spelled out in the audio.
+   * How spelled-out values are read: not at all, letter by letter, or
+   * phonetically. Applies to every field listed in `spellFields`.
    *
-   * Without this a candidate has to guess the spelling of a surname they have
-   * never seen, which measures luck rather than listening. Real benefits calls
-   * spell names routinely.
+   * Without spelling, a candidate has to guess how an unfamiliar name is
+   * written, which measures luck rather than listening. Real benefits calls
+   * spell unusual words routinely.
    */
   nameSpelling: SpellingMode
+  /**
+   * Which fields get spelled after being stated.
+   *
+   * Configurable because spelling is expensive — a long facility name roughly
+   * doubles the length of its segment. Identifiers are deliberately absent:
+   * they are already read character by character by `idToWords`, so listing one
+   * here would spell it twice.
+   */
+  spellFields: AudioFieldKey[]
   pauseThresholdMs: number
 
   /* Audio requirements */

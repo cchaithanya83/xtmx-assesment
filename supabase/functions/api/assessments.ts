@@ -198,7 +198,11 @@ export async function startAssessment(
       resolvePools(ctx.db),
       resolveLevelFields(ctx.db),
     ])
-    scenario = generateScenario(config, undefined, { pools, levelFields })
+    scenario = generateScenario(config, undefined, {
+      pools,
+      levelFields,
+      nameSpelling: settings.nameSpelling,
+    })
   }
 
   const { data, error } = await ctx.db

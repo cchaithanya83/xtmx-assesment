@@ -1,4 +1,4 @@
-import type { AudioFieldKey } from './types.ts'
+import type { AudioFieldKey, SpellingMode } from './types.ts'
 import {
   BATCHES,
   COINSURANCE_VALUES,
@@ -195,6 +195,8 @@ export const SELECTABLE_FIELDS: { key: AudioFieldKey; label: string; critical: b
 export interface ScenarioContent {
   pools?: Partial<Record<PoolKey, string[]>>
   levelFields?: Record<number, AudioFieldKey[]>
+  /** Carried here so the generator has one plumbing path for everything. */
+  nameSpelling?: SpellingMode
 }
 
 /** Resolves a pool, falling back to its factory default. */

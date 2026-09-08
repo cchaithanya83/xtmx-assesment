@@ -145,3 +145,44 @@ export function estimateSpeechSeconds(text: string, wpm: number): number {
   const words = text.trim().split(/\s+/).filter(Boolean).length
   return (words / Math.max(60, wpm)) * 60
 }
+
+/**
+ * Spells a word out, the way a call handler would when a name is unfamiliar.
+ *
+ *   letters  → "C, H, A, I, T, H, A, N, Y, A"
+ *   phonetic → "C as in Charlie, H as in Hotel, …"
+ *
+ * Letters are comma-separated rather than hyphenated: speech engines read a
+ * hyphen aloud as "dash", and the commas add the short pause a listener needs
+ * to write each character down.
+ *
+ * Hyphens and apostrophes inside a name ARE named, because the candidate has to
+ * reproduce them — "O'Donnell" and "ODonnell" are different answers.
+ */
+export function spellWord(word: string, mode: 'letters' | 'phonetic'): string {
+  const parts: string[] = []
+  for (const raw of word) {
+    const ch = raw.toUpperCase()
+    if (/[A-Z]/.test(ch)) {
+      parts.push(mode === 'phonetic' ? `${ch} as in ${PHONETIC[ch] ?? ch}` : ch)
+    } else if (ch === '-') {
+      parts.push('hyphen')
+    } else if (ch === "'" || ch === '\u2019') {
+      parts.push('apostrophe')
+    }
+    // Spaces fall through: each word is spelled separately by the caller.
+  }
+  return parts.join(', ')
+}
+
+/**
+ * Spells a full name, one word at a time, so the listener can tell where the
+ * first name ends and the surname begins.
+ */
+export function spellName(name: string, mode: 'letters' | 'phonetic'): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => spellWord(word, mode))
+    .join(', then ')
+}

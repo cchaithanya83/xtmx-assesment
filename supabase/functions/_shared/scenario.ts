@@ -5,6 +5,7 @@ import type {
   AudioScenario,
   ScenarioCorrection,
   ScriptSegment,
+  SpellingMode,
   VerificationPrompt,
 } from './types.ts'
 import { NETWORK_STATUSES } from './pools.ts'
@@ -22,6 +23,7 @@ import {
   idToWords,
   percentToWords,
   phoneToWords,
+  spellName,
 } from './speech.ts'
 
 /* -------------------------------------------------------------------------- */
@@ -368,6 +370,7 @@ export function generateScenario(
     fillerCount: config.fillerSegments,
     rng,
     content,
+    nameSpelling: content?.nameSpelling ?? 'none',
   })
 
   const script = segments.map((s) => s.text).join(' ')
@@ -427,6 +430,7 @@ interface BuildSegmentsArgs {
   fillerCount: number
   rng: Rng
   content?: ScenarioContent
+  nameSpelling: SpellingMode
 }
 
 function buildSegments({
@@ -437,6 +441,7 @@ function buildSegments({
   fillerCount,
   rng,
   content,
+  nameSpelling,
 }: BuildSegmentsArgs): ScriptSegment[] {
   const segments: ScriptSegment[] = []
 
@@ -474,7 +479,7 @@ function buildSegments({
       // Speak the wrong value first, then correct it in a following segment.
       segments.push({
         id: uid('seg'),
-        text: speakField(key, correction.from, phonetic, rng),
+        text: speakField(key, correction.from, phonetic, rng, nameSpelling),
         fields: [key],
         pauseAfterMs: 400,
         kind: 'data',
@@ -490,7 +495,7 @@ function buildSegments({
             'Hold on, that is not right.',
           ],
           rng,
-        )} ${speakField(key, correction.to, phonetic, rng)}`,
+        )} ${speakField(key, correction.to, phonetic, rng, nameSpelling)}`,
         fields: [key],
         pauseAfterMs: 800,
         kind: 'correction',
@@ -498,7 +503,7 @@ function buildSegments({
     } else {
       segments.push({
         id: uid('seg'),
-        text: speakField(key, values[key], phonetic, rng),
+        text: speakField(key, values[key], phonetic, rng, nameSpelling),
         fields: [key],
         pauseAfterMs: randInt(500, 1100, rng),
         kind: 'data',
@@ -518,10 +523,16 @@ function buildSegments({
 }
 
 /** Renders one field's value as a natural spoken sentence. */
-function speakField(key: AudioFieldKey, value: string, phonetic: boolean, rng: Rng): string {
+function speakField(
+  key: AudioFieldKey,
+  value: string,
+  phonetic: boolean,
+  rng: Rng,
+  nameSpelling: SpellingMode = 'none',
+): string {
   switch (key) {
-    case 'memberName':
-      return pick(
+    case 'memberName': {
+      const stated = pick(
         [
           `The member is ${value}.`,
           `Member name on file is ${value}.`,
@@ -529,6 +540,20 @@ function speakField(key: AudioFieldKey, value: string, phonetic: boolean, rng: R
         ],
         rng,
       )
+      if (nameSpelling === 'none') return stated
+      // Spelling the name after stating it mirrors how a real benefits call
+      // handles an unfamiliar surname.
+      const spelled = spellName(value, nameSpelling)
+      return `${stated} ${pick(
+        [
+          `That is spelled ${spelled}.`,
+          `${value}, spelled ${spelled}.`,
+          `Let me spell that for you: ${spelled}.`,
+          `Spelling that out, ${spelled}.`,
+        ],
+        rng,
+      )}`
+    }
     case 'dob':
       return pick(
         [

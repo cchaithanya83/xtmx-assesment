@@ -5,11 +5,18 @@ import type { AudioLevelConfig, TrainerSettings, WpmScoreBand } from './types.ts
  * from Settings → Assessment Configuration and persisted with the workspace.
  */
 
+/**
+ * Typing speed scoring bands.
+ *
+ * Rescaled so full marks arrive at 30 WPM rather than 40. The original curve
+ * was tuned for experienced typists and made the assessment punishing for the
+ * trainees it is actually for. Editable per deployment in Configuration.
+ */
 export const DEFAULT_WPM_BANDS: WpmScoreBand[] = [
-  { minWpm: 40, points: 30 },
-  { minWpm: 35, points: 27 },
-  { minWpm: 30, points: 24 },
-  { minWpm: 25, points: 17 },
+  { minWpm: 30, points: 30 },
+  { minWpm: 27, points: 27 },
+  { minWpm: 24, points: 24 },
+  { minWpm: 22, points: 17 },
   { minWpm: 20, points: 10 },
   { minWpm: 0, points: 0 },
 ]
@@ -78,11 +85,14 @@ export const DEFAULT_AUDIO_LEVELS: AudioLevelConfig[] = [
 
 export const DEFAULT_SETTINGS: TrainerSettings = {
   /* Typing requirements */
-  minWpm: 30,
+  // The floor to pass. Full speed marks arrive at 30 (see DEFAULT_WPM_BANDS),
+  // so 20 is the gate and 30 is the target.
+  minWpm: 20,
   minAccuracy: 85,
   passingScore: 75,
   minCompletion: 95,
   backspacePenaltyWeight: 0.2,
+  nameSpelling: 'letters',
   wpmBands: DEFAULT_WPM_BANDS,
   pauseThresholdMs: 3000,
 

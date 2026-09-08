@@ -21,6 +21,14 @@ export type Difficulty =
   | 'Advanced'
 export type AssessmentMode = 'certification' | 'practice'
 
+/**
+ * How the audio spells a value out after saying it.
+ *   none     — spoken once, at pace
+ *   letters  — "J-E-N-N-I-F-E-R"
+ *   phonetic — "Juliet, Echo, November…" (NATO alphabet)
+ */
+export type SpellingMode = 'none' | 'letters' | 'phonetic'
+
 /** Risk bands surfaced to trainers. Deliberately muted, professional colours. */
 export type RiskLevel = 'green' | 'mid' | 'low' | 'danger' | 'below-standard'
 
@@ -479,6 +487,14 @@ export interface TrainerSettings {
    */
   backspacePenaltyWeight: number
   wpmBands: WpmScoreBand[]
+  /**
+   * Whether member names are spelled out in the audio.
+   *
+   * Without this a candidate has to guess the spelling of a surname they have
+   * never seen, which measures luck rather than listening. Real benefits calls
+   * spell names routinely.
+   */
+  nameSpelling: SpellingMode
   pauseThresholdMs: number
 
   /* Audio requirements */

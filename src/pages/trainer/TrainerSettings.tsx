@@ -254,6 +254,27 @@ export default function TrainerSettingsPage() {
               value={draft.minCriticalAccuracy}
               onChange={num('minCriticalAccuracy', 50, 100)}
             />
+            <div className="space-y-1.5">
+              <Label htmlFor="name-spelling">Spell member names in the audio</Label>
+              <Select
+                id="name-spelling"
+                value={draft.nameSpelling}
+                onChange={(e) =>
+                  set('nameSpelling', e.target.value as typeof draft.nameSpelling)
+                }
+              >
+                <option value="none">Not spelled — spoken once, at pace</option>
+                <option value="letters">Letter by letter — "J-E-N-N-I-F-E-R"</option>
+                <option value="phonetic">Phonetic — "J as in Juliet, E as in Echo"</option>
+              </Select>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                Without spelling, a candidate has to guess how an unfamiliar surname is written,
+                which measures luck rather than listening. Real benefits calls spell names
+                routinely. Hyphens and apostrophes are named too, since the candidate has to
+                reproduce them.
+              </p>
+            </div>
+
             <NumberField
               label="Playback speed"
               value={draft.playbackSpeed}

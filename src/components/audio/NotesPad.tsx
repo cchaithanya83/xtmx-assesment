@@ -7,15 +7,17 @@ const MAX_NOTES = 4000
 /**
  * Scratchpad for the listening round.
  *
- * Copy and paste is allowed HERE and nowhere else in the assessment. A real
- * call handler writes on a pad and transfers it to the form afterwards;
- * forcing every value straight into its final field measures typing under
+ * A real call handler writes on a pad and transfers it to the form afterwards.
+ * Forcing every value straight into its final field measures typing under
  * pressure rather than listening.
  *
- * The answer fields keep their paste guards, so the transfer is still
- * deliberate work. Notes are saved with the attempt and visible to the
- * trainer, which the label says plainly — a scratchpad the candidate thinks is
- * private and is not would be a nasty surprise.
+ * Enabling the pad also unblocks paste in the answer fields — a pad you cannot
+ * paste out of is useless. Task 1 is unaffected: pasting the source passage
+ * there would defeat the typing test.
+ *
+ * Notes are saved with the attempt and visible to the trainer, which the label
+ * says plainly — a scratchpad the candidate believes is private and is not
+ * would be a nasty surprise.
  */
 export function NotesPad({
   value,
@@ -35,7 +37,7 @@ export function NotesPad({
         <Label htmlFor="notes-pad">Scratchpad</Label>
         <span className="ml-auto flex items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800">
           <ClipboardPaste className="size-3" />
-          Copy &amp; paste allowed here
+          Paste enabled
         </span>
       </div>
 
@@ -49,7 +51,10 @@ export function NotesPad({
       />
 
       <p className="mt-1.5 flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
-        <span>Not scored. Saved with your attempt and visible to your trainer.</span>
+        <span>
+          Not scored. Copy from here into the fields. Saved with your attempt and visible to your
+          trainer.
+        </span>
         {remaining < 500 && (
           <span className={cn('shrink-0 tabular', remaining < 100 && 'text-amber-700')}>
             {remaining} left

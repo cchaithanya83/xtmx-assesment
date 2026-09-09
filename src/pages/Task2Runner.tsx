@@ -432,8 +432,20 @@ export default function Task2Runner() {
     hint: f.hint,
   }))
 
+  /**
+   * Clipboard rules for the answer fields.
+   *
+   * The scratchpad governs both: a pad you cannot paste OUT of is useless, so
+   * enabling it unblocks paste in the capture form as well. That is the whole
+   * working method — jot values roughly while listening, then paste them into
+   * the right field.
+   *
+   * With the pad off, paste is blocked as before. Task 1 is unaffected either
+   * way: pasting the source passage there would defeat the typing test
+   * outright.
+   */
   const guards = clipboardGuards(
-    Boolean(isCertification) && settings.blockPaste,
+    Boolean(isCertification) && settings.blockPaste && !notesShown,
     integrity.recordPaste,
     integrity.recordCopy,
   )

@@ -565,6 +565,17 @@ export interface TrainerSettings {
    */
   seekAllowed: boolean
   /**
+   * Shows a running transcript of what has already been spoken.
+   *
+   * Only lines the candidate has heard appear — never upcoming ones, which
+   * would hand over the answer key. Reduces the memory load without removing
+   * the listening: the value still has to be recognised and typed into the
+   * right field.
+   *
+   * On by default. Turn it off for a cohort being assessed on recall.
+   */
+  showTranscript: boolean
+  /**
    * Lets the candidate change playback speed during a CERTIFICATION attempt.
    * Off by default for the same reason. Practice mode always allows it.
    */

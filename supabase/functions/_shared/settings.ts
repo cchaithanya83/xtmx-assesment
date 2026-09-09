@@ -107,6 +107,7 @@ export const DEFAULT_SETTINGS: TrainerSettings = {
   replayAllowed: false,
   pauseAllowed: false,
   seekAllowed: false,
+  showTranscript: true,
   speedControlAllowed: false,
   playbackSpeed: 1,
   voiceURI: null,

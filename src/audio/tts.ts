@@ -1,4 +1,5 @@
 import type { ScriptSegment } from '@/types'
+import { segmentStartFractions } from '@shared/speech.ts'
 
 /**
  * Text-to-speech abstraction.
@@ -275,19 +276,10 @@ export class SegmentSpeechEngine {
     this.index = 0
     this.stopped = false
 
-    // Weight each segment by its word count plus its trailing pause, then scale
-    // the whole thing to the caller's duration estimate so the offsets and the
-    // progress bar cannot disagree.
-    const weights = segments.map(
-      (seg) => seg.text.trim().split(/\s+/).filter(Boolean).length * 100 + seg.pauseAfterMs,
-    )
-    const total = weights.reduce((a, b) => a + b, 0) || 1
-    this.offsets = [0]
-    let acc = 0
-    for (const w of weights) {
-      acc += (w / total) * this.durationMs
-      this.offsets.push(acc)
-    }
+    // Laid out with the SAME helper the scenario generator uses to schedule
+    // verification prompts. If these two drifted apart, a prompt could fire
+    // before the line it asks about had been spoken.
+    this.offsets = segmentStartFractions(segments).map((f) => f * this.durationMs)
   }
 
   /** Segment boundaries as progress fractions, for rendering seek ticks. */

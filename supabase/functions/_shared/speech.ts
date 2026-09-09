@@ -186,3 +186,60 @@ export function spellName(name: string, mode: 'letters' | 'phonetic'): string {
     .map((word) => spellWord(word, mode))
     .join(', then ')
 }
+
+/* -------------------------------------------------------------------------- */
+/*  Segment timeline                                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Relative cost of each segment: spoken words plus its trailing silence.
+ *
+ * Used to lay segments out on a 0–1 timeline. Both the scenario generator (to
+ * decide when a verification prompt may fire) and the playback engine (to
+ * report progress and to seek) derive from this, so a prompt cannot be
+ * scheduled on a different scale from the audio it is waiting for.
+ */
+export function segmentWeights(
+  segments: { text: string; pauseAfterMs: number }[],
+): number[] {
+  return segments.map(
+    (seg) => seg.text.trim().split(/\s+/).filter(Boolean).length * 100 + seg.pauseAfterMs,
+  )
+}
+
+/** Start of each segment as a fraction of the whole, plus a trailing 1. */
+export function segmentStartFractions(
+  segments: { text: string; pauseAfterMs: number }[],
+): number[] {
+  const weights = segmentWeights(segments)
+  const total = weights.reduce((a, b) => a + b, 0) || 1
+  const fractions = [0]
+  let acc = 0
+  for (const w of weights) {
+    acc += w / total
+    fractions.push(Math.min(1, acc))
+  }
+  return fractions
+}
+
+/**
+ * The point by which a field has definitely been spoken: the END of the LAST
+ * segment mentioning it.
+ *
+ * Last, not first, because a corrected value is spoken twice — once wrongly,
+ * then again after "sorry, correction". Keying off the first mention would let
+ * a prompt ask about a value that is about to change.
+ */
+export function fieldRevealFractions(
+  segments: { text: string; pauseAfterMs: number; fields: string[] }[],
+): Record<string, number> {
+  const fractions = segmentStartFractions(segments)
+  const revealed: Record<string, number> = {}
+  segments.forEach((seg, i) => {
+    for (const field of seg.fields) {
+      // fractions[i + 1] is the end of segment i.
+      revealed[field] = Math.max(revealed[field] ?? 0, fractions[i + 1])
+    }
+  })
+  return revealed
+}

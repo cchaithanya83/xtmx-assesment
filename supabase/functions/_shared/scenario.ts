@@ -20,6 +20,7 @@ import {
   currencyToWords,
   dateToWords,
   estimateSpeechSeconds,
+  fieldRevealFractions,
   idToWords,
   percentToWords,
   phoneToWords,
@@ -382,12 +383,15 @@ export function generateScenario(
     segments.reduce((sum, s) => sum + s.pauseAfterMs, 0) / 1000
 
   // ---- Verification prompts ---------------------------------------------
+  // Built AFTER the segments, because a prompt's trigger point depends on when
+  // its field is actually spoken.
   const verificationPrompts = buildVerificationPrompts(
     config.verificationPrompts,
     formFields,
     values,
     rng,
     content,
+    segments,
   )
 
   return {
@@ -637,93 +641,142 @@ function statedForm(
 /*  Verification prompts (multitasking)                                        */
 /* -------------------------------------------------------------------------- */
 
+/** A prompt plus the field it may not be asked before. */
+interface PromptCandidate {
+  prompt: VerificationPrompt
+  /** Null means it depends on the whole call, so it goes last. */
+  dependsOn: AudioFieldKey | null
+}
+
 function buildVerificationPrompts(
   count: number,
   fields: AudioFieldKey[],
   values: Record<AudioFieldKey, string>,
   rng: Rng,
-  content?: ScenarioContent,
+  content: ScenarioContent | undefined,
+  segments: ScriptSegment[],
 ): VerificationPrompt[] {
   if (count <= 0) return []
 
-  const candidates: (() => VerificationPrompt | null)[] = [
+  const candidates: (() => PromptCandidate | null)[] = [
     () =>
       fields.includes('networkStatus')
         ? {
-            id: uid('vp'),
-            question: 'What is the provider network status?',
-            options: ['In Network', 'Out of Network', 'Not Provided'],
-            correctAnswer: values.networkStatus,
-            triggerAtProgress: 0,
+            dependsOn: 'networkStatus' as AudioFieldKey,
+            prompt: {
+              id: uid('vp'),
+              question: 'What is the provider network status?',
+              options: ['In Network', 'Out of Network', 'Not Provided'],
+              correctAnswer: values.networkStatus,
+              triggerAtProgress: 0,
+            },
           }
         : null,
     () =>
       fields.includes('coinsurance')
         ? {
-            id: uid('vp'),
-            question: 'What coinsurance percentage was stated?',
-            options: shuffle(
-              [
-                values.coinsurance,
-                ...poolOf(content, 'COINSURANCE_VALUES')
-                  .filter((v) => v !== values.coinsurance)
-                  .slice(0, 2),
-              ],
-              rng,
-            ),
-            correctAnswer: values.coinsurance,
-            triggerAtProgress: 0,
+            dependsOn: 'coinsurance' as AudioFieldKey,
+            prompt: {
+              id: uid('vp'),
+              question: 'What coinsurance percentage was stated?',
+              options: shuffle(
+                [
+                  values.coinsurance,
+                  ...poolOf(content, 'COINSURANCE_VALUES')
+                    .filter((v) => v !== values.coinsurance)
+                    .slice(0, 2),
+                ],
+                rng,
+              ),
+              correctAnswer: values.coinsurance,
+              triggerAtProgress: 0,
+            },
           }
         : null,
     () =>
       fields.includes('deductible')
         ? {
-            id: uid('vp'),
-            question: 'Confirm the deductible amount currently on the record.',
-            options: shuffle(
-              [
-                `$${Number(values.deductible).toLocaleString()}`,
-                ...numberPoolOf(content, 'DEDUCTIBLE_VALUES')
-                  .filter((v) => String(v) !== values.deductible)
-                  .slice(0, 2)
-                  .map((v) => `$${v.toLocaleString()}`),
-              ],
-              rng,
-            ),
-            correctAnswer: `$${Number(values.deductible).toLocaleString()}`,
-            triggerAtProgress: 0,
+            dependsOn: 'deductible' as AudioFieldKey,
+            prompt: {
+              id: uid('vp'),
+              question: 'Confirm the deductible amount currently on the record.',
+              options: shuffle(
+                [
+                  `$${Number(values.deductible).toLocaleString()}`,
+                  ...numberPoolOf(content, 'DEDUCTIBLE_VALUES')
+                    .filter((v) => String(v) !== values.deductible)
+                    .slice(0, 2)
+                    .map((v) => `$${v.toLocaleString()}`),
+                ],
+                rng,
+              ),
+              correctAnswer: `$${Number(values.deductible).toLocaleString()}`,
+              triggerAtProgress: 0,
+            },
           }
         : null,
     () => ({
-      id: uid('vp'),
-      question: 'Has a termination date been provided on this call?',
-      options: ['Yes', 'No', 'Not stated'],
-      correctAnswer: fields.includes('terminationDate') ? 'Yes' : 'No',
-      triggerAtProgress: 0,
+      // About the call as a whole, so it can only be answered near the end.
+      dependsOn: null,
+      prompt: {
+        id: uid('vp'),
+        question: 'Has a termination date been provided on this call?',
+        options: ['Yes', 'No', 'Not stated'],
+        correctAnswer: fields.includes('terminationDate') ? 'Yes' : 'No',
+        triggerAtProgress: 0,
+      },
     }),
     () =>
       fields.includes('memberName')
         ? {
-            id: uid('vp'),
-            question: 'Confirm the member name you have captured.',
-            options: shuffle(
-              [values.memberName, generateName(rng, content), generateName(rng, content)],
-              rng,
-            ),
-            correctAnswer: values.memberName,
-            triggerAtProgress: 0,
+            dependsOn: 'memberName' as AudioFieldKey,
+            prompt: {
+              id: uid('vp'),
+              question: 'Confirm the member name you have captured.',
+              options: shuffle(
+                [values.memberName, generateName(rng, content), generateName(rng, content)],
+                rng,
+              ),
+              correctAnswer: values.memberName,
+              triggerAtProgress: 0,
+            },
           }
         : null,
   ]
 
   const built = shuffle(candidates, rng)
     .map((fn) => fn())
-    .filter((p): p is VerificationPrompt => p !== null)
+    .filter((c): c is PromptCandidate => c !== null)
     .slice(0, count)
 
-  // Spread prompts across the middle 70% of the audio timeline.
-  return built.map((p, i) => ({
-    ...p,
-    triggerAtProgress: 0.25 + (i * 0.55) / Math.max(1, built.length - 1 || 1),
-  }))
+  const revealed = fieldRevealFractions(segments)
+
+  /**
+   * A prompt may only appear once its field has been spoken.
+   *
+   * `GAP` gives the listener a moment to finish typing the value before being
+   * asked about it — firing on the same breath would be testing reflexes, not
+   * retention. A prompt with no field dependency waits until the data is done.
+   */
+  const GAP = 0.04
+  const LAST_ALLOWED = 0.97
+
+  const scheduled = built
+    .map((c) => {
+      const earliest =
+        c.dependsOn === null
+          ? Math.max(...Object.values(revealed), 0)
+          : (revealed[c.dependsOn] ?? 0)
+      return { ...c, earliest: Math.min(LAST_ALLOWED, earliest + GAP) }
+    })
+    // Ask in the order the information arrives; anything else feels arbitrary.
+    .sort((a, b) => a.earliest - b.earliest)
+
+  // Nudge apart any that would otherwise stack on top of each other.
+  let previous = -1
+  return scheduled.map((c) => {
+    const at = Math.min(LAST_ALLOWED, Math.max(c.earliest, previous + GAP))
+    previous = at
+    return { ...c.prompt, triggerAtProgress: at }
+  })
 }

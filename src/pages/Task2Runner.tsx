@@ -10,6 +10,7 @@ import type { PublicScenario } from '@/api/client'
 import { AssessmentShell, DesktopRecommendedNotice } from '@/components/layout/AppShell'
 import { AudioPlayer } from '@/components/audio/AudioPlayer'
 import { CaptureSummary, ScenarioForm } from '@/components/audio/ScenarioForm'
+import { Transcript } from '@/components/audio/Transcript'
 import { VerificationPromptCard } from '@/components/audio/VerificationPromptCard'
 import { DifficultyBadge } from '@/components/shared'
 import { Badge, Button, Card, Dialog, Progress } from '@/components/ui'
@@ -48,6 +49,7 @@ export default function Task2Runner() {
   const seekAllowed = activeSession?.mode === 'practice' || settings.seekAllowed
   const speedControlAllowed =
     activeSession?.mode === 'practice' || settings.speedControlAllowed
+  const transcriptShown = activeSession?.mode === 'practice' || settings.showTranscript
 
   /* ---- State ------------------------------------------------------------ */
   const [values, setValues] = React.useState<Record<string, string>>({})
@@ -62,6 +64,12 @@ export default function Task2Runner() {
   const [speed, setSpeed] = React.useState(settings.playbackSpeed)
   const [segmentMarkers, setSegmentMarkers] = React.useState<number[]>([])
   const [seeksUsed, setSeeksUsed] = React.useState(0)
+  /**
+   * How many segments have started. Drives the transcript, and is deliberately
+   * derived from playback rather than from the scenario, so the transcript can
+   * never show a line before it is spoken.
+   */
+  const [spokenCount, setSpokenCount] = React.useState(0)
   const [confirmExit, setConfirmExit] = React.useState(false)
   const [submitting, setSubmitting] = React.useState(false)
   const [submitError, setSubmitError] = React.useState<string | null>(null)
@@ -213,6 +221,7 @@ export default function Task2Runner() {
     setHasStarted(true)
     setIsPlaying(true)
     engineRef.current.play({
+      onSegmentStart: (index) => setSpokenCount(index + 1),
       onProgress: handleProgress,
       onEnd: () => {
         setIsPlaying(false)
@@ -242,7 +251,13 @@ export default function Task2Runner() {
     setSeeksUsed((n) => n + 1)
     // Prompts already fired stay fired: re-triggering them on every scrub would
     // let a candidate farm the same question repeatedly.
-    engineRef.current.seek(p, { onProgress: handleProgress })
+    engineRef.current.seek(p, {
+      onSegmentStart: (index) => setSpokenCount(index + 1),
+      onProgress: handleProgress,
+    })
+    // Seeking back must not leave later lines on screen.
+    const segmentCount = scenario?.segments.length ?? 0
+    setSpokenCount((current) => Math.min(current, Math.ceil(p * segmentCount)))
     setEnded(false)
   }
 
@@ -264,6 +279,7 @@ export default function Task2Runner() {
     setEnded(false)
     setProgress(0)
     progressRef.current = 0
+    setSpokenCount(0)
     setHasStarted(false)
     // Next tick so the engine's internal reset lands before replay.
     requestAnimationFrame(playAudio)
@@ -498,6 +514,10 @@ export default function Task2Runner() {
               speed={speed}
               onSpeedChange={changeSpeed}
             />
+
+            {transcriptShown && (
+              <Transcript segments={scenario.segments} spokenCount={spokenCount} />
+            )}
 
             {activePrompt && (
               <VerificationPromptCard

@@ -12,3 +12,5 @@ dist
 .firebase
 supabase/.temp
 *.tmp.mjs
+firebase-debug.log
+*firebase-debug.log

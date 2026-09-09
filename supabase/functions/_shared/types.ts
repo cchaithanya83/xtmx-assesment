@@ -311,6 +311,8 @@ export interface AudioAttemptTelemetry {
   blurCount: number
   pasteAttempts: number
   replaysUsed: number
+  /** The candidate's scratchpad, kept for trainer review. Never scored. */
+  notes?: string
 }
 
 /* -------------------------------------------------------------------------- */
@@ -575,6 +577,16 @@ export interface TrainerSettings {
    * On by default. Turn it off for a cohort being assessed on recall.
    */
   showTranscript: boolean
+  /**
+   * Gives the candidate a scratchpad during the listening round, with copy and
+   * paste allowed inside it.
+   *
+   * Paste stays blocked in the answer fields, so the value still has to be
+   * transferred deliberately. Notes are stored with the attempt for the
+   * trainer: a value captured correctly on the pad but filed in the wrong
+   * field is a routing problem, not a listening one.
+   */
+  allowNotes: boolean
   /**
    * Lets the candidate change playback speed during a CERTIFICATION attempt.
    * Off by default for the same reason. Practice mode always allows it.

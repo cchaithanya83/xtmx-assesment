@@ -363,6 +363,12 @@ export default function TrainerSettingsPage() {
               onChange={(v) => set('replayAllowed', v)}
             />
             <ToggleRow
+              label="Allow a scratchpad"
+              description="Gives the candidate a notes box during the listening round, with copy and paste allowed inside it — paste stays blocked in the answer fields, so the value still has to be transferred deliberately. Mirrors how a call handler works from a pad. Notes are saved with the attempt for your review and are never scored. Practice mode always allows it."
+              checked={draft.allowNotes}
+              onChange={(v) => set('allowNotes', v)}
+            />
+            <ToggleRow
               label="Show live transcript"
               description="Displays each line as it is spoken, so a candidate can re-read a value they have already heard. Only spoken lines appear — never upcoming ones, which would be the answer key. On by default; turn it off for a cohort being assessed on recall. Practice mode always shows it."
               checked={draft.showTranscript}

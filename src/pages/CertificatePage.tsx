@@ -37,6 +37,7 @@ export default function CertificatePage() {
     void refreshProgress()
   }, [refreshProgress])
 
+  // Still used for the on-screen certificate and the browser Print route.
   const sheetRef = React.useRef<HTMLDivElement | null>(null)
   const [generating, setGenerating] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -44,46 +45,17 @@ export default function CertificatePage() {
   if (!candidate || !result) return null
 
   const downloadPdf = async () => {
-    if (!sheetRef.current || !certification) return
+    if (!certification) return
     setGenerating(true)
     setError(null)
     try {
-      // Loaded on demand: jsPDF + html2canvas are ~200 kB and are only needed
-      // on this route, so they stay out of the assessment critical path.
-      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
-        import('html2canvas'),
-        import('jspdf'),
-      ])
-
-      // Render at 2× for crisp text, then place onto a landscape A4 page.
-      const canvas = await html2canvas(sheetRef.current, {
-        scale: 2,
-        backgroundColor: '#ffffff',
-        useCORS: true,
-        logging: false,
-      })
-      const image = canvas.toDataURL('image/png')
-      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
-
-      const pageWidth = pdf.internal.pageSize.getWidth()
-      const pageHeight = pdf.internal.pageSize.getHeight()
-      const margin = 8
-      const maxW = pageWidth - margin * 2
-      const maxH = pageHeight - margin * 2
-
-      // Preserve aspect ratio and centre on the page.
-      const ratio = Math.min(maxW / canvas.width, maxH / canvas.height)
-      const w = canvas.width * ratio
-      const h = canvas.height * ratio
-      pdf.addImage(image, 'PNG', (pageWidth - w) / 2, (pageHeight - h) / 2, w, h)
-
-      pdf.setProperties({
-        title: `${ORG_SHORT} Certificate — ${certification.candidateName}`,
-        subject: ASSESSMENT_TITLE,
-        author: ORG_NAME,
-        keywords: certification.certificateId,
-      })
-      pdf.save(`${certification.certificateId}-${candidate.candidateId}.pdf`)
+      // Drawn as vectors from the certificate data — no DOM, no CSS parsing.
+      // The old html2canvas route failed with "unsupported color function
+      // oklch" because it walks every stylesheet in the document, so a browser
+      // extension could break a candidate's certificate.
+      const { buildCertificatePdf, certificateFilename } = await import('@/lib/certificatePdf')
+      const doc = await buildCertificatePdf({ certification, candidate })
+      doc.save(certificateFilename(certification, candidate))
     } catch (err) {
       setError(
         `Could not generate the PDF (${(err as Error).message}). Use Print instead and choose "Save as PDF".`,
@@ -164,7 +136,9 @@ export default function CertificatePage() {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Styling note: html2canvas rasterises this node, so everything here uses plain
+ * Styling note: this is the on-screen and PRINT rendering. The downloaded PDF is
+ * drawn separately as vectors in lib/certificatePdf.ts, so the two are
+ * intentionally independent — this node uses plain
  * colours and avoids CSS features the rasteriser handles poorly (backdrop
  * filters, CSS variables in gradients, `oklch`).
  */

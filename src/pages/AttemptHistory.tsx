@@ -149,6 +149,21 @@ export function AttemptRow({ attempt, dense }: { attempt: Attempt; dense?: boole
           <span className="text-[11px] text-muted-foreground">
             {formatDateTime(attempt.completedAt)}
           </span>
+          {attempt.audioTelemetry?.notes && (
+            <div>
+              <h4 className="mb-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                Candidate scratchpad
+              </h4>
+              <pre className="scroll-thin max-h-40 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-card p-3 font-mono text-[12px] leading-relaxed text-navy-800">
+                {attempt.audioTelemetry.notes}
+              </pre>
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                Never scored. Useful for telling a routing mistake — captured correctly but filed
+                in the wrong field — from a value that was never heard.
+              </p>
+            </div>
+          )}
+
           {attempt.fieldResults && attempt.fieldResults.length > 0 && (
             <span className="hidden xl:inline">
               <FieldComparisonSummary fields={attempt.fieldResults} />

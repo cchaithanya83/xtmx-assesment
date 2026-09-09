@@ -23,7 +23,7 @@ export default defineConfig({
         manualChunks: {
           react: ['react', 'react-dom', 'react-router-dom'],
           charts: ['recharts'],
-          pdf: ['jspdf', 'html2canvas'],
+          pdf: ['jspdf'],
           supabase: ['@supabase/supabase-js'],
         },
       },

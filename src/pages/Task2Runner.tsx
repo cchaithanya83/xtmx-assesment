@@ -11,6 +11,7 @@ import { AssessmentShell, DesktopRecommendedNotice } from '@/components/layout/A
 import { AudioPlayer } from '@/components/audio/AudioPlayer'
 import { CaptureSummary, ScenarioForm } from '@/components/audio/ScenarioForm'
 import { Transcript } from '@/components/audio/Transcript'
+import { NotesPad } from '@/components/audio/NotesPad'
 import { VerificationPromptCard } from '@/components/audio/VerificationPromptCard'
 import { DifficultyBadge } from '@/components/shared'
 import { Badge, Button, Card, Dialog, Progress } from '@/components/ui'
@@ -50,6 +51,7 @@ export default function Task2Runner() {
   const speedControlAllowed =
     activeSession?.mode === 'practice' || settings.speedControlAllowed
   const transcriptShown = activeSession?.mode === 'practice' || settings.showTranscript
+  const notesShown = activeSession?.mode === 'practice' || settings.allowNotes
 
   /* ---- State ------------------------------------------------------------ */
   const [values, setValues] = React.useState<Record<string, string>>({})
@@ -70,6 +72,9 @@ export default function Task2Runner() {
    * never show a line before it is spoken.
    */
   const [spokenCount, setSpokenCount] = React.useState(0)
+  const [notes, setNotes] = React.useState('')
+  /** Mirrors `notes` so a timeout submission sends the latest text. */
+  const notesRef = React.useRef('')
   const [confirmExit, setConfirmExit] = React.useState(false)
   const [submitting, setSubmitting] = React.useState(false)
   const [submitError, setSubmitError] = React.useState<string | null>(null)
@@ -359,6 +364,7 @@ export default function Task2Runner() {
         verificationAnswers: answeredPrompts,
         blurCount: integrity.log.blurCount,
         pasteAttempts: integrity.log.pasteAttempts,
+        notes: notesRef.current.trim() || undefined,
       }
 
       try {
@@ -517,6 +523,16 @@ export default function Task2Runner() {
 
             {transcriptShown && (
               <Transcript segments={scenario.segments} spokenCount={spokenCount} />
+            )}
+
+            {notesShown && (
+              <NotesPad
+                value={notes}
+                onChange={(v) => {
+                  notesRef.current = v
+                  setNotes(v)
+                }}
+              />
             )}
 
             {activePrompt && (

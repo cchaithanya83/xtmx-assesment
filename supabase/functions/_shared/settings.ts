@@ -108,6 +108,7 @@ export const DEFAULT_SETTINGS: TrainerSettings = {
   pauseAllowed: false,
   seekAllowed: false,
   showTranscript: true,
+  allowNotes: true,
   speedControlAllowed: false,
   playbackSpeed: 1,
   voiceURI: null,

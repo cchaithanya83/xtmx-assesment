@@ -633,6 +633,12 @@ function normaliseTelemetry(
     blurCount: clampNumber(reported?.blurCount, 0, 9999),
     pasteAttempts: clampNumber(reported?.pasteAttempts, 0, 9999),
     replaysUsed: clampNumber(reported?.replaysUsed, 0, 100),
+    // Free text from the candidate, so it is length-capped. Never scored — it
+    // exists for the trainer to see how the capture was worked out.
+    notes:
+      typeof reported?.notes === 'string' && reported.notes.trim()
+        ? reported.notes.slice(0, 4000)
+        : undefined,
   }
 }
 

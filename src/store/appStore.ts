@@ -156,7 +156,18 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async refreshMe() {
     const data = await me.get()
-    set({ profile: data.profile, candidate: data.candidate, settings: data.settings })
+    set({
+      profile: data.profile,
+      candidate: data.candidate,
+      // Merged OVER the defaults rather than replacing them.
+      //
+      // A setting added in a release the server has not been redeployed with
+      // would otherwise arrive as `undefined`, and any feature gated on it
+      // would silently switch off — a default-on feature vanishing because a
+      // key is missing is the worst possible failure mode. The server does the
+      // same merge over its own defaults; this makes the client agree.
+      settings: { ...DEFAULT_SETTINGS, ...data.settings },
+    })
   },
 
   async refreshProgress() {
@@ -252,7 +263,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async updateSettings(patch) {
     const { settings } = await settingsApi.update(patch)
-    set({ settings })
+    // Same merge as refreshMe, for the same reason.
+    set({ settings: { ...DEFAULT_SETTINGS, ...settings } })
   },
 
   /* --- derived ----------------------------------------------------------- */

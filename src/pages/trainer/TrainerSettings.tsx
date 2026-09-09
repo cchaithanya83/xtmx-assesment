@@ -363,6 +363,12 @@ export default function TrainerSettingsPage() {
               onChange={(v) => set('replayAllowed', v)}
             />
             <ToggleRow
+              label="Show live transcript"
+              description="Displays each line as it is spoken, so a candidate can re-read a value they have already heard. Only spoken lines appear — never upcoming ones, which would be the answer key. On by default; turn it off for a cohort being assessed on recall. Practice mode always shows it."
+              checked={draft.showTranscript}
+              onChange={(v) => set('showTranscript', v)}
+            />
+            <ToggleRow
               label="Allow seeking during assessment"
               description="Lets a candidate scrub the audio in certification mode. Off by default — someone who can jump back over a line is no longer being measured on real-time listening. Practice mode always allows it."
               checked={draft.seekAllowed}

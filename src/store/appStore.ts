@@ -72,12 +72,16 @@ interface AppState {
   booting: boolean
   loadingProgress: boolean
   error: string | null
+  /** Set when the server rejects our token, so the router can bounce to sign-in. */
+  sessionExpired: boolean
 
   /* --- lifecycle --------------------------------------------------------- */
   bootstrap: () => Promise<void>
   refreshMe: () => Promise<void>
   refreshProgress: () => Promise<void>
   clearError: () => void
+  expireSession: () => void
+  clearSessionExpired: () => void
 
   /* --- auth -------------------------------------------------------------- */
   signIn: (email: string, password: string) => Promise<Profile>
@@ -121,6 +125,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   booting: true,
   loadingProgress: false,
   error: null,
+  sessionExpired: false,
 
   /* ---------------------------------------------------------------------- */
 
@@ -186,6 +191,29 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   clearError: () => set({ error: null }),
+
+  /**
+   * Tears down local state after the server rejects our token.
+   *
+   * Called from the API layer, so it must be safe to invoke repeatedly and from
+   * outside React.
+   */
+  expireSession() {
+    if (get().sessionExpired) return
+    set({
+      sessionExpired: true,
+      profile: null,
+      candidate: null,
+      progress: [],
+      result: null,
+      certification: null,
+      activeSession: null,
+      lastAttempt: null,
+    })
+    void auth.signOut()
+  },
+
+  clearSessionExpired: () => set({ sessionExpired: false }),
 
   /* --- auth -------------------------------------------------------------- */
 

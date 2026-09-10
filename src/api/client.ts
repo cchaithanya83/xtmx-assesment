@@ -47,6 +47,20 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Called whenever an authenticated request comes back 401.
+ *
+ * Registered by the router so it can sign out and navigate. Lives here rather
+ * than in each caller because an expired session is not a per-screen concern —
+ * every screen would otherwise render a raw "your session has expired" error
+ * and leave the user stranded on it with no way forward.
+ */
+let onUnauthorized: (() => void) | null = null
+
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  onUnauthorized = handler
+}
+
 async function accessToken(): Promise<string | null> {
   if (!supabase) return null
   const { data } = await supabase.auth.getSession()
@@ -76,7 +90,10 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   if (!options.anonymous) {
     const token = await accessToken()
-    if (!token) throw new ApiError(401, 'Your session has expired. Please sign in again.')
+    if (!token) {
+      onUnauthorized?.()
+      throw new ApiError(401, 'Your session has expired. Please sign in again.')
+    }
     headers.Authorization = `Bearer ${token}`
   } else {
     // The gateway still requires a key to route the request; it grants nothing.
@@ -110,6 +127,9 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   if (!res.ok) {
     const body = payload as { error?: string; code?: string } | null
+    // A rejected token is not something a screen can recover from, so hand it
+    // to the app rather than rendering it as that screen's error.
+    if (res.status === 401 && !options.anonymous) onUnauthorized?.()
     throw new ApiError(res.status, body?.error ?? `Request failed (${res.status})`, body?.code)
   }
 

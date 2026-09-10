@@ -1,8 +1,9 @@
 import * as React from 'react'
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import logoUrl from '@/assests/image.png'
 import { useAppStore } from '@/store/appStore'
+import { setUnauthorizedHandler } from '@/api/client'
 import { AppShell } from '@/components/layout/AppShell'
 
 /* Eager: the candidate's critical path — auth, dashboard and the two
@@ -43,6 +44,37 @@ const ContentManager = React.lazy(() => import('@/pages/trainer/ContentManager')
  * the navigation chrome is removed to minimise distraction and to make leaving
  * the screen a deliberate act (which is also logged for integrity review).
  */
+/**
+ * Bounces the user to sign-in when the server rejects their token.
+ *
+ * A token can die mid-session — it expires, a password changes, an admin
+ * disables the account. Without this, whichever screen happened to be fetching
+ * rendered a raw "your session has expired" message and left the user stranded
+ * on it. Registered here because it needs the router, and unregistered on
+ * unmount so a hot reload cannot leave a stale closure behind.
+ */
+function SessionGuard() {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const expireSession = useAppStore((s) => s.expireSession)
+  const sessionExpired = useAppStore((s) => s.sessionExpired)
+
+  React.useEffect(() => {
+    setUnauthorizedHandler(() => expireSession())
+    return () => setUnauthorizedHandler(null)
+  }, [expireSession])
+
+  React.useEffect(() => {
+    if (!sessionExpired) return
+    // Already on an auth screen: nothing to bounce, and redirecting would
+    // interrupt someone mid-sign-in.
+    if (location.pathname.startsWith('/signin') || location.pathname.startsWith('/signup')) return
+    navigate('/signin', { replace: true, state: { expired: true, from: location.pathname } })
+  }, [sessionExpired, location.pathname, navigate])
+
+  return null
+}
+
 export default function App() {
   const bootstrap = useAppStore((s) => s.bootstrap)
   const booting = useAppStore((s) => s.booting)
@@ -55,6 +87,7 @@ export default function App() {
 
   return (
     <React.Suspense fallback={<RouteFallback />}>
+      <SessionGuard />
       <Routes>
         {/* ---- Public ---- */}
         <Route

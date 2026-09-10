@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Award, Download, Lock, Loader2, Printer } from 'lucide-react'
+import { Award, Lock, Printer } from 'lucide-react'
 import logoUrl from '@/assests/image.png'
 import type { Certification } from '@/types'
 import { ASSESSMENT_TITLE, ORG_NAME, ORG_SHORT } from '@/data/settings'
@@ -39,31 +39,31 @@ export default function CertificatePage() {
 
   // Still used for the on-screen certificate and the browser Print route.
   const sheetRef = React.useRef<HTMLDivElement | null>(null)
-  const [generating, setGenerating] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
+  // const [generating, setGenerating] = React.useState(false)
+  // const [error, setError] = React.useState<string | null>(null)
 
   if (!candidate || !result) return null
 
-  const downloadPdf = async () => {
-    if (!certification) return
-    setGenerating(true)
-    setError(null)
-    try {
-      // Drawn as vectors from the certificate data — no DOM, no CSS parsing.
-      // The old html2canvas route failed with "unsupported color function
-      // oklch" because it walks every stylesheet in the document, so a browser
-      // extension could break a candidate's certificate.
-      const { buildCertificatePdf, certificateFilename } = await import('@/lib/certificatePdf')
-      const doc = await buildCertificatePdf({ certification, candidate })
-      doc.save(certificateFilename(certification, candidate))
-    } catch (err) {
-      setError(
-        `Could not generate the PDF (${(err as Error).message}). Use Print instead and choose "Save as PDF".`,
-      )
-    } finally {
-      setGenerating(false)
-    }
-  }
+  // const downloadPdf = async () => {
+  //   if (!certification) return
+  //   setGenerating(true)
+  //   setError(null)
+  //   try {
+  //     // Drawn as vectors from the certificate data — no DOM, no CSS parsing.
+  //     // The old html2canvas route failed with "unsupported color function
+  //     // oklch" because it walks every stylesheet in the document, so a browser
+  //     // extension could break a candidate's certificate.
+  //     const { buildCertificatePdf, certificateFilename } = await import('@/lib/certificatePdf')
+  //     const doc = await buildCertificatePdf({ certification, candidate })
+  //     doc.save(certificateFilename(certification, candidate))
+  //   } catch (err) {
+  //     setError(
+  //       `Could not generate the PDF (${(err as Error).message}). Use Print instead and choose "Save as PDF".`,
+  //     )
+  //   } finally {
+  //     setGenerating(false)
+  //   }
+  // }
 
   /* ---- Locked state ---- */
   if (!certification) {
@@ -108,23 +108,23 @@ export default function CertificatePage() {
               <Printer className="size-4" />
               Print
             </Button>
-            <Button onClick={downloadPdf} disabled={generating}>
+            {/* <Button onClick={downloadPdf} disabled={generating}>
               {generating ? (
                 <Loader2 className="size-4 animate-spin" />
               ) : (
                 <Download className="size-4" />
               )}
               Download Certificate PDF
-            </Button>
+            </Button> */}
           </div>
         }
       />
 
-      {error && (
+      {/* {error && (
         <p className="no-print mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
           {error}
         </p>
-      )}
+      )} */}
 
       <CertificateSheet ref={sheetRef} certification={certification} />
     </div>
@@ -301,7 +301,13 @@ export const CertificateSheet = React.forwardRef<
               </div>
 
               <div className="text-center">
-                <div className="h-9 w-44 border-b" style={{ borderColor: '#94a3b8' }} />
+                <div className="w-44 border-b pb-1" style={{ borderColor: '#94a3b8' }}>
+                  <img
+                    src={`${import.meta.env.BASE_URL}image.png`}
+                    alt="Authorised signatory signature"
+                    className="h-14 w-full object-contain"
+                  />
+                </div>
                 <p
                   className="mt-1.5 text-[9px] font-bold uppercase tracking-[0.18em]"
                   style={{ color: '#64748b' }}

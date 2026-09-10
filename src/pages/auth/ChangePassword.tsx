@@ -17,7 +17,7 @@ export default function ChangePassword() {
   const navigate = useNavigate()
   const location = useLocation()
   const account = useAppStore((s) => s.profile)
-  const refreshMe = useAppStore((s) => s.refreshMe)
+  const signIn = useAppStore((s) => s.signIn)
   const signOut = useAppStore((s) => s.signOut)
 
   const forced = Boolean((location.state as { forced?: boolean } | null)?.forced)
@@ -29,6 +29,8 @@ export default function ChangePassword() {
   const [formError, setFormError] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
   const [done, setDone] = React.useState(false)
+  /** Password changed, but the automatic re-sign-in did not take. */
+  const [changed, setChanged] = React.useState(false)
 
   React.useEffect(() => {
     if (!account) navigate('/signin', { replace: true })
@@ -51,18 +53,39 @@ export default function ChangePassword() {
     if (Object.keys(problems).length) return
 
     setBusy(true)
+
+    // The change itself. Only failures here are the user's problem to fix.
     try {
       await auth.changePassword(current, next)
-      // The forced-change flag lives on the profile; refetch so the router
-      // guards stop redirecting back here.
-      await refreshMe()
+    } catch (err) {
+      setFormError((err as Error).message)
+      setBusy(false)
+      return
+    }
+
+    /**
+     * Past this point the password HAS changed, so nothing below may be
+     * reported as a failure.
+     *
+     * Supabase revokes every session when a password changes, which means the
+     * token this page is holding is already dead. Calling the API with it
+     * returned "your session has expired" and surfaced as an error on a
+     * successful change — leaving the user stuck here, and unable to retry
+     * because their "current" password was now the new one.
+     *
+     * So re-authenticate with the new password before touching the API again.
+     */
+    try {
+      await signIn(account?.email ?? '', next)
       setDone(true)
       window.setTimeout(
         () => navigate(account?.role === 'candidate' ? '/dashboard' : '/trainer', { replace: true }),
         900,
       )
-    } catch (err) {
-      setFormError((err as Error).message)
+    } catch {
+      // Changed, but we could not silently sign them back in. Say exactly that
+      // rather than implying the change failed.
+      setChanged(true)
     } finally {
       setBusy(false)
     }
@@ -105,6 +128,25 @@ export default function ChangePassword() {
           <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-[13px] font-medium text-emerald-800">
             Password updated. Redirecting…
           </p>
+        )}
+
+        {changed && (
+          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-[13px] text-emerald-900">
+            <p className="font-semibold">Your password has been changed.</p>
+            <p className="mt-1">
+              Sign in again with your new password to continue.
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              className="mt-2"
+              onClick={() => {
+                void signOut().then(() => navigate('/signin', { replace: true }))
+              }}
+            >
+              Go to sign in
+            </Button>
+          </div>
         )}
 
         <Field label={forced ? 'Temporary password' : 'Current password'} error={errors.current}>

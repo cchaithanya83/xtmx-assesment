@@ -1,10 +1,12 @@
 import type { SupabaseClient } from 'jsr:@supabase/supabase-js@2'
 import type {
+  AssessmentResult,
   Attempt,
   Candidate,
   Certification,
   TrainerSettings,
 } from '../_shared/types.ts'
+import { buildCertification } from '../_shared/certification.ts'
 import { DEFAULT_SETTINGS } from '../_shared/settings.ts'
 import { notFound } from './http.ts'
 
@@ -180,6 +182,39 @@ export async function saveCertification(
     payload: cert,
   })
   if (error) throw error
+}
+
+/**
+ * Issues the certificate if every gate is met and none exists yet.
+ *
+ * Certification used to be evaluated ONLY on submission. That left anyone whose
+ * status changed for any other reason stuck showing "locked" indefinitely: a
+ * trainer lowering a threshold, an assignment being reset, or — as happened —
+ * a scoring fix that raised an average past its gate. The candidate met every
+ * requirement and still had no certificate, with no way to trigger one short of
+ * sitting another attempt.
+ *
+ * So it is also checked whenever certification status is read. Idempotent: it
+ * returns the stored record untouched once one exists, and issues nothing
+ * unless `result.certified`.
+ */
+export async function ensureCertification(
+  db: SupabaseClient,
+  candidateId: string,
+  result: AssessmentResult,
+): Promise<Certification | null> {
+  const existing = await getCertification(db, candidateId)
+  if (existing) return existing
+  if (!result.certified) return null
+
+  const candidate = await getCandidate(db, candidateId).catch(() => null)
+  if (!candidate) return null
+
+  const cert = buildCertification(candidateId, candidate.fullName, result)
+  if (!cert) return null
+
+  await saveCertification(db, cert)
+  return cert
 }
 
 /* -------------------------------------------------------------------------- */

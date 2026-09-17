@@ -23,7 +23,7 @@ import {
   attemptToRow,
   candidateToRow,
   getCandidate,
-  getCertification,
+  ensureCertification,
   getSettings,
   listAttempts,
   listBatches,
@@ -98,6 +98,7 @@ router.get('/me/progress', async ({ ctx }) => {
   const candidateId = resolveCandidateId(ctx)
   const settings = await getSettings(ctx.db)
   const attempts = await listAttempts(ctx.db, candidateId)
+  const result = computeAssessmentResult(candidateId, attempts, settings)
 
   return json({
     progress: deriveProgress(attempts, {
@@ -105,8 +106,11 @@ router.get('/me/progress', async ({ ctx }) => {
       requireTask1BeforeTask2: settings.requireTask1BeforeTask2,
       minAverageWpm: settings.minAverageWpm,
     }),
-    result: computeAssessmentResult(candidateId, attempts, settings),
-    certification: await getCertification(ctx.db, candidateId),
+    result,
+    // Issued here too, not only on submission — a candidate can become
+    // certified through a threshold change or a scoring fix, with no further
+    // attempt to trigger it.
+    certification: await ensureCertification(ctx.db, candidateId, result),
   })
 })
 
@@ -312,6 +316,8 @@ router.get('/trainer/candidates/:candidateId', async ({ ctx, params }) => {
   const settings = await getSettings(ctx.db)
   const attempts = await listAttempts(ctx.db, candidate.id)
 
+  const result = computeAssessmentResult(candidate.id, attempts, settings)
+
   return json({
     candidate,
     attempts,
@@ -320,8 +326,8 @@ router.get('/trainer/candidates/:candidateId', async ({ ctx, params }) => {
       requireTask1BeforeTask2: settings.requireTask1BeforeTask2,
       minAverageWpm: settings.minAverageWpm,
     }),
-    result: computeAssessmentResult(candidate.id, attempts, settings),
-    certification: await getCertification(ctx.db, candidate.id),
+    result,
+    certification: await ensureCertification(ctx.db, candidate.id, result),
   })
 })
 

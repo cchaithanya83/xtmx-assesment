@@ -4,11 +4,9 @@ import { badRequest, conflict, forbidden, notFound } from '../_server/http.ts'
 import {
   attemptToRow,
   countAttempts,
-  getCandidate,
-  getCertification,
+  ensureCertification,
   getSettings,
   listAttempts,
-  saveCertification,
 } from '../_server/repo.ts'
 import { getAssignment } from '../_shared/tasks.ts'
 import { PASSAGE_POOLS } from '../_shared/passages.ts'
@@ -382,29 +380,19 @@ export async function submitAssessment(ctx: Caller, raw: Record<string, unknown>
 
   // Certification is re-evaluated after every submission, so the certificate
   // exists the moment the final gate is met rather than on the next page load.
-  const certification = await maybeIssueCertificate(ctx, candidateId)
+  // Shared with the read paths, so submission and a later page load cannot
+  // reach different conclusions about whether a certificate exists.
+  const settingsNow = await getSettings(ctx.db)
+  const certification = await ensureCertification(
+    ctx.db,
+    candidateId,
+    computeAssessmentResult(candidateId, await listAttempts(ctx.db, candidateId), settingsNow),
+  )
 
   return { attempt, certification }
 }
 
-/**
- * Issues the certificate once every gate passes. A no-op if one already exists,
- * or if any requirement is still outstanding.
- */
-async function maybeIssueCertificate(ctx: Caller, candidateId: string) {
-  const existing = await getCertification(ctx.db, candidateId)
-  if (existing) return existing
 
-  const settings = await getSettings(ctx.db)
-  const attempts = await listAttempts(ctx.db, candidateId)
-  const result = computeAssessmentResult(candidateId, attempts, settings)
-  if (!result.certified) return null
-
-  const candidate = await getCandidate(ctx.db, candidateId)
-  const cert = buildCertification(candidateId, candidate.fullName, result)
-  if (cert) await saveCertification(ctx.db, cert)
-  return cert
-}
 
 function clampInt(value: unknown, min: number, max: number): number {
   const n = Number(value)

@@ -402,6 +402,34 @@ function deriveCandidateStatus(args: {
   return 'in-progress'
 }
 
+/**
+ * The minimum a roster row needs for its status to be derived.
+ * Matches the aggregate columns of the `candidate_roster` view.
+ */
+export interface RosterStatusInput {
+  certified: boolean
+  assignmentsPassed: number
+  totalAttempts: number
+  finalScore: number
+}
+
+/**
+ * Candidate status from the pre-aggregated roster row.
+ *
+ * Exported so the dashboard, the results page and the server-side KPI counts
+ * all derive it identically. It used to be copied into each screen, which is
+ * how the Overview and the Results page could report different numbers of
+ * certified candidates.
+ */
+export function rosterStatus(row: RosterStatusInput): CandidateStatus {
+  if (row.certified) return 'certified'
+  if (row.totalAttempts === 0) return 'not-started'
+  if (row.assignmentsPassed === TOTAL_ASSIGNMENTS) return 'not-certified'
+  if (row.finalScore > 0 && row.finalScore < 70) return 'danger'
+  if (row.finalScore > 0 && row.finalScore < 78) return 'needs-coaching'
+  return 'in-progress'
+}
+
 export const RISK_LABEL: Record<RiskLevel, string> = {
   green: 'Green',
   mid: 'Mid',

@@ -351,12 +351,24 @@ export interface RosterRow {
   certificateId: string | null
 }
 
+/** Counts over the whole filtered cohort, not the page being viewed. */
+export interface RosterSummary {
+  total: number
+  certified: number
+  inProgress: number
+  needsCoaching: number
+  danger: number
+  notCertified: number
+  notStarted: number
+}
+
 export interface RosterResponse {
   rows: RosterRow[]
   total: number
   limit: number
   offset: number
   settings: TrainerSettings
+  summary: RosterSummary
 }
 
 export interface LiveSessionRow {

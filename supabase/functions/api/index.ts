@@ -28,6 +28,7 @@ import {
   listAttempts,
   listBatches,
   queryRoster,
+  rosterSummary,
   saveSettings,
   touchCandidate,
 } from '../_server/repo.ts'
@@ -228,7 +229,13 @@ router.get('/trainer/roster', async ({ ctx, url }) => {
   })
 
   const settings = await getSettings(ctx.db)
-  return json({ rows, total, limit, offset, settings })
+  // Counted over the whole filtered cohort, so the header does not depend on
+  // which page happens to be open.
+  const summary = await rosterSummary(ctx.db, {
+    search: url.searchParams.get('search') ?? undefined,
+    batch: url.searchParams.get('batch') ?? undefined,
+  })
+  return json({ rows, total, limit, offset, settings, summary })
 })
 
 /**

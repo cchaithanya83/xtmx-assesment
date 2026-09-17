@@ -1,10 +1,14 @@
 import * as React from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Award, Download, Loader2 } from 'lucide-react'
-import type { CandidateStatus } from '@/types'
 import { trainer, type RosterRow } from '@/api/client'
 import { useApi } from '@/hooks/useApi'
-import { classifyPerformance, classifyRisk, STATUS_LABEL } from '@/engine/certification'
+import {
+  classifyPerformance,
+  classifyRisk,
+  rosterStatus,
+  STATUS_LABEL,
+} from '@/engine/certification'
 import { TOTAL_ASSIGNMENTS } from '@/data/tasks'
 import { ScoreDistributionChart } from '@/components/charts'
 import {
@@ -47,7 +51,7 @@ export default function TrainerResults() {
     () =>
       rows.map((row) => ({
         row,
-        status: deriveStatus(row),
+        status: rosterStatus(row),
         risk: classifyRisk(row.finalScore, row.certified, row.assignmentsPassed),
         performance: classifyPerformance(row.finalScore, row.certified),
       })),
@@ -55,6 +59,8 @@ export default function TrainerResults() {
   )
 
   const started = decorated.filter((d) => d.row.totalAttempts > 0)
+  // Cohort-wide, from the API — not "however many of the loaded rows".
+  const summary = roster.data?.summary
   const certified = decorated.filter((d) => d.row.certified)
   const avgScore = round(average(started.map((d) => d.row.finalScore)), 1)
   const avgWpm = round(average(started.map((d) => d.row.avgWpm).filter(Boolean)))
@@ -112,7 +118,7 @@ export default function TrainerResults() {
                 multitaskingScore: r.multitaskingScore,
                 performance: classifyPerformance(r.finalScore, r.certified),
                 risk: classifyRisk(r.finalScore, r.certified, r.assignmentsPassed),
-                status: STATUS_LABEL[deriveStatus(r)],
+                status: STATUS_LABEL[rosterStatus(r)],
                 certified: r.certified,
                 certificateId: r.certificateId ?? '',
               })),
@@ -161,9 +167,9 @@ export default function TrainerResults() {
       )}
 
       <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <MetricCard label="Candidates" value={roster.data?.total ?? 0} />
+        <MetricCard label="Candidates" value={summary?.total ?? roster.data?.total ?? 0} />
         <MetricCard label="Started" value={started.length} />
-        <MetricCard label="Certified" value={certified.length} tone="success" />
+        <MetricCard label="Certified" value={summary?.certified ?? certified.length} tone="success" />
         <MetricCard label="Avg final score" value={avgScore || '—'} />
         <MetricCard label="Avg WPM" value={avgWpm || '—'} />
         <MetricCard
@@ -349,14 +355,4 @@ export default function TrainerResults() {
       )}
     </div>
   )
-}
-
-/** Presentation-level status, derived from the server's aggregate. */
-function deriveStatus(row: RosterRow): CandidateStatus {
-  if (row.certified) return 'certified'
-  if (row.totalAttempts === 0) return 'not-started'
-  if (row.assignmentsPassed === TOTAL_ASSIGNMENTS) return 'not-certified'
-  if (row.finalScore > 0 && row.finalScore < 70) return 'danger'
-  if (row.finalScore > 0 && row.finalScore < 78) return 'needs-coaching'
-  return 'in-progress'
 }

@@ -16,7 +16,12 @@ import {
 import type { CandidateStatus, PerformanceLevel, RiskLevel } from '@/types'
 import { trainer, type RosterRow } from '@/api/client'
 import { useApi, useDebounced } from '@/hooks/useApi'
-import { classifyPerformance, classifyRisk, STATUS_LABEL } from '@/engine/certification'
+import {
+  classifyPerformance,
+  classifyRisk,
+  rosterStatus,
+  STATUS_LABEL,
+} from '@/engine/certification'
 import { TOTAL_ASSIGNMENTS } from '@/data/tasks'
 import { ScoreDistributionChart } from '@/components/charts'
 import {
@@ -75,32 +80,19 @@ export default function TrainerDashboard() {
 
   /**
    * Status and risk are presentation-level derivations of the aggregate the
-   * server returned, so they are applied here rather than in SQL. They are
-   * filters over the current page only — which is why the count is labelled
-   * "on this page".
+   * server returned, so they are applied to the visible rows here rather than
+   * in SQL. The header counts come from the API and cover the whole cohort.
    */
   const decorated = React.useMemo(
     () =>
-      rows.map((row) => {
-        const certified = row.certified
-        const derivedStatus: CandidateStatus = certified
-          ? 'certified'
-          : row.totalAttempts === 0
-            ? 'not-started'
-            : row.assignmentsPassed === TOTAL_ASSIGNMENTS
-              ? 'not-certified'
-              : row.finalScore > 0 && row.finalScore < 70
-                ? 'danger'
-                : row.finalScore > 0 && row.finalScore < 78
-                  ? 'needs-coaching'
-                  : 'in-progress'
-        return {
-          row,
-          status: derivedStatus,
-          risk: classifyRisk(row.finalScore, certified, row.assignmentsPassed),
-          performance: classifyPerformance(row.finalScore, certified),
-        }
-      }),
+      rows.map((row) => ({
+        row,
+        // Shared with the results page and with the server-side KPI counts, so
+        // the three can no longer disagree.
+        status: rosterStatus(row),
+        risk: classifyRisk(row.finalScore, row.certified, row.assignmentsPassed),
+        performance: classifyPerformance(row.finalScore, row.certified),
+      })),
     [rows],
   )
 
@@ -123,17 +115,17 @@ export default function TrainerDashboard() {
     }))
   }, [rows])
 
-  const kpis = React.useMemo(
-    () => ({
-      total: roster.data?.total ?? 0,
-      certified: decorated.filter((d) => d.status === 'certified').length,
-      inProgress: decorated.filter((d) => d.status === 'in-progress').length,
-      coaching: decorated.filter((d) => d.status === 'needs-coaching').length,
-      danger: decorated.filter((d) => d.status === 'danger').length,
-      notCertified: decorated.filter((d) => d.status === 'not-certified').length,
-    }),
-    [decorated, roster.data],
-  )
+  /**
+   * Counted over the entire filtered cohort by the API, not over the rows on
+   * screen. Counting the page put a cohort-wide "total candidates" next to
+   * page-scoped tallies, so this header and the results page reported different
+   * numbers of certified candidates — both correct for what they measured, and
+   * useless for comparing.
+   */
+  const kpis = roster.data?.summary ?? {
+    total: 0, certified: 0, inProgress: 0, needsCoaching: 0,
+    danger: 0, notCertified: 0, notStarted: 0,
+  }
 
   const toggleSort = (key: string) => {
     if (sort === key) setDirection((d) => (d === 'asc' ? 'desc' : 'asc'))
@@ -212,29 +204,25 @@ export default function TrainerDashboard() {
           value={kpis.certified}
           tone="success"
           icon={<ShieldCheck className="size-3.5" />}
-          hint="on this page"
         />
         <MetricCard
           label="In progress"
           value={kpis.inProgress}
           icon={<UserCheck className="size-3.5" />}
-          hint="on this page"
         />
         <MetricCard
           label="Needs coaching"
-          value={kpis.coaching}
+          value={kpis.needsCoaching}
           tone="warning"
           icon={<AlertTriangle className="size-3.5" />}
-          hint="on this page"
         />
         <MetricCard
           label="Danger"
           value={kpis.danger}
           tone="danger"
           icon={<TrendingDown className="size-3.5" />}
-          hint="on this page"
         />
-        <MetricCard label="Not certified" value={kpis.notCertified} tone="danger" hint="on this page" />
+        <MetricCard label="Not certified" value={kpis.notCertified} tone="danger" />
       </div>
 
       {/* ---- Distribution + thresholds ---- */}

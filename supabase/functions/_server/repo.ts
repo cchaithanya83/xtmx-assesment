@@ -9,6 +9,7 @@ import type {
 import { buildCertification } from '../_shared/certification.ts'
 import { DEFAULT_SETTINGS } from '../_shared/settings.ts'
 import { notFound } from './http.ts'
+import { rosterStatus } from '../_shared/certification.ts'
 
 /**
  * Database access.
@@ -313,6 +314,87 @@ export async function queryRoster(
       certificateId: r.certificate_id ?? null,
     })),
   }
+}
+
+export interface RosterSummary {
+  total: number
+  certified: number
+  inProgress: number
+  needsCoaching: number
+  danger: number
+  notCertified: number
+  notStarted: number
+}
+
+/**
+ * Counts every candidate matching the filters, not just the current page.
+ *
+ * The dashboard used to count over whatever rows the page happened to hold,
+ * while sitting next to a cohort-wide "total candidates" card — so the Overview
+ * and the Results page disagreed about how many people were certified, and both
+ * were arguably right.
+ *
+ * Only the four aggregate columns the derivation needs are selected, so this
+ * stays cheap over a large cohort, and the status itself comes from the same
+ * shared function the UI uses.
+ */
+export async function rosterSummary(
+  db: SupabaseClient,
+  q: Pick<RosterQuery, 'search' | 'batch'>,
+): Promise<RosterSummary> {
+  // Rebuilt per page: a PostgREST builder issues its request when awaited, so
+  // the same one cannot be reused for the next page. Ordered by id so paging
+  // neither repeats nor skips a candidate.
+  const page = (from: number, to: number) => {
+    let query = db
+      .from('candidate_roster')
+      .select('certified, assignments_passed, total_attempts, final_score')
+
+    if (q.search) {
+      const safe = q.search.replace(/[,()]/g, ' ').trim()
+      if (safe) {
+        query = query.or(
+          `full_name.ilike.%${safe}%,candidate_id.ilike.%${safe}%,email.ilike.%${safe}%`,
+        )
+      }
+    }
+    if (q.batch) query = query.eq('batch', q.batch)
+    return query.order('id', { ascending: true }).range(from, to)
+  }
+
+  const summary: RosterSummary = {
+    total: 0, certified: 0, inProgress: 0, needsCoaching: 0,
+    danger: 0, notCertified: 0, notStarted: 0,
+  }
+
+  // PostgREST caps an unbounded select at 1000 rows, which would quietly
+  // undercount a large cohort — the very bug this function exists to fix, just
+  // at a higher threshold. Paging keeps the count honest at any size.
+  const SIZE = 1000
+  for (let offset = 0; ; offset += SIZE) {
+    const { data, error } = await page(offset, offset + SIZE - 1)
+    if (error) throw error
+    const rows = data ?? []
+
+    for (const r of rows) {
+      summary.total += 1
+      const status = rosterStatus({
+        certified: Boolean(r.certified),
+        assignmentsPassed: Number(r.assignments_passed ?? 0),
+        totalAttempts: Number(r.total_attempts ?? 0),
+        finalScore: Number(r.final_score ?? 0),
+      })
+      if (status === 'certified') summary.certified += 1
+      else if (status === 'in-progress') summary.inProgress += 1
+      else if (status === 'needs-coaching') summary.needsCoaching += 1
+      else if (status === 'danger') summary.danger += 1
+      else if (status === 'not-certified') summary.notCertified += 1
+      else summary.notStarted += 1
+    }
+
+    if (rows.length < SIZE) break
+  }
+  return summary
 }
 
 /** Distinct batches, for the trainer filter dropdown. */

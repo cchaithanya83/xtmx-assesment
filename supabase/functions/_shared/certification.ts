@@ -1,4 +1,5 @@
 import type {
+  AssessmentMode,
   AssessmentResult,
   AssignmentProgress,
   Attempt,
@@ -24,6 +25,41 @@ import { average, hashString, makeCertificateId, round } from './core.ts'
  * this is a pure projection, which is what keeps product rules #3 and #4
  * (retries preserve history; trainers see first *and* best) true by construction.
  */
+/**
+ * Picks the attempt that represents a candidate's performance on one
+ * assignment. Every aggregate reads from this, so they cannot disagree.
+ *
+ * Ordered by score, then WPM, then recency.
+ *
+ * The tie-break on WPM is the important part. The rule used to be a plain
+ * `score > best`, which keeps the EARLIEST attempt whenever scores are equal —
+ * and once a candidate reaches the 100-point cap, every later attempt ties.
+ * Someone who capped at 30 WPM and then worked up to 35 kept being reported at
+ * 30, with no way to shift it: their improvement was real, recorded, and
+ * invisible. It also held their Task 1 average below the certification gate.
+ *
+ * Recency breaks a remaining tie so the most recent demonstration wins, which
+ * is what a candidate expects after a retry.
+ */
+export function bestAttemptOf(
+  attempts: Attempt[],
+  taskId: TaskId,
+  assignmentId: number,
+  mode: AssessmentMode = 'certification',
+): Attempt | null {
+  const rows = attempts.filter(
+    (a) => a.taskId === taskId && a.assignmentId === assignmentId && a.mode === mode,
+  )
+  return rows.reduce<Attempt | null>((best, row) => {
+    if (!best) return row
+    if (row.score !== best.score) return row.score > best.score ? row : best
+    const rowWpm = row.wpm ?? 0
+    const bestWpm = best.wpm ?? 0
+    if (rowWpm !== bestWpm) return rowWpm > bestWpm ? row : best
+    return row.completedAt > best.completedAt ? row : best
+  }, null)
+}
+
 export interface ProgressOptions {
   /**
    * When false, every assignment is available regardless of what has been
@@ -54,7 +90,14 @@ export function task1Completion(
       const rows = attempts.filter(
         (x) => x.taskId === 1 && x.assignmentId === a.id && x.mode === 'certification',
       )
-      return rows.reduce<Attempt | null>((acc, r) => (!acc || r.score > acc.score ? r : acc), null)
+      return rows.reduce<Attempt | null>((best, row) => {
+        if (!best) return row
+        if (row.score !== best.score) return row.score > best.score ? row : best
+        const rowWpm = row.wpm ?? 0
+        const bestWpm = best.wpm ?? 0
+        if (rowWpm !== bestWpm) return rowWpm > bestWpm ? row : best
+        return row.completedAt > best.completedAt ? row : best
+      }, null)
     })
     .filter((a): a is Attempt => a !== null)
 
@@ -98,10 +141,7 @@ export function deriveProgress(
         .sort((a, b) => a.attemptNumber - b.attemptNumber)
 
       const first = rows[0] ?? null
-      const best = rows.reduce<Attempt | null>(
-        (acc, r) => (!acc || r.score > acc.score ? r : acc),
-        null,
-      )
+      const best = bestAttemptOf(attempts, task.id, assignment.id)
       const passing = rows.find((r) => r.passed) ?? null
 
       // With sequential unlocking off, nothing is ever gated behind a pass.
@@ -197,12 +237,10 @@ export function computeAssessmentResult(
     minAverageWpm: settings.minAverageWpm,
   })
 
-  const bestFor = (taskId: TaskId, assignmentId: number): Attempt | null => {
-    const rows = certAttempts.filter(
-      (a) => a.taskId === taskId && a.assignmentId === assignmentId,
-    )
-    return rows.reduce<Attempt | null>((acc, r) => (!acc || r.score > acc.score ? r : acc), null)
-  }
+  // Same selector as deriveProgress, so the roster, the dashboard and the
+  // certification gates can never report different numbers for one attempt.
+  const bestFor = (taskId: TaskId, assignmentId: number): Attempt | null =>
+    bestAttemptOf(certAttempts, taskId, assignmentId)
 
   const task1Best = TASKS[0].assignments.map((a) => bestFor(1, a.id)).filter(Boolean) as Attempt[]
   const task2Best = TASKS[1].assignments.map((a) => bestFor(2, a.id)).filter(Boolean) as Attempt[]

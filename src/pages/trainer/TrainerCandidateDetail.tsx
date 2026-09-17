@@ -5,6 +5,7 @@ import {
   Download,
   Mail,
   MapPin,
+  Pencil,
   RotateCcw,
   ShieldAlert,
   Loader2,
@@ -34,7 +35,7 @@ import {
   RiskBadge,
   StatusBadge,
 } from '@/components/shared'
-import { Badge, Button, Card, Dialog, Progress, Tabs } from '@/components/ui'
+import { Badge, Button, Card, Dialog, Input, Progress, Select, Tabs } from '@/components/ui'
 import { cn, downloadBlob, formatDate, round, toCsv } from '@/lib/utils'
 
 /**
@@ -205,7 +206,11 @@ export default function TrainerCandidateDetail() {
           </h2>
           <div className="divide-y divide-border">
             <DetailRow label="Candidate ID" value={candidate.candidateId} mono />
-            <DetailRow label="Batch / cohort" value={candidate.batch} mono />
+            <BatchEditor
+              candidateId={candidate.id}
+              batch={candidate.batch}
+              onChanged={detail.refetch}
+            />
             <DetailRow
               label="Location"
               value={
@@ -595,6 +600,157 @@ export default function TrainerCandidateDetail() {
           </>
         }
       />
+    </div>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Batch                                                                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Moves a candidate between cohorts, and lets an administrator create a cohort
+ * that does not exist yet.
+ *
+ * Creating is admin-only on the server because the batch list is also what
+ * candidates pick from when they sign up, so a trainer sees the picker without
+ * the "New batch" option rather than an action that fails when used.
+ */
+function BatchEditor({
+  candidateId,
+  batch,
+  onChanged,
+}: {
+  candidateId: string
+  batch: string
+  onChanged: () => void
+}) {
+  const role = useAppStore((s) => s.profile?.role)
+  const isAdmin = role === 'admin'
+
+  const batches = useApi(() => trainer.batches(), [])
+  const [editing, setEditing] = React.useState(false)
+  const [creating, setCreating] = React.useState(false)
+  const [draft, setDraft] = React.useState('')
+  const [busy, setBusy] = React.useState(false)
+  const [error, setError] = React.useState('')
+
+  // The current batch may predate the configured list, so it is always offered.
+  const options = React.useMemo(() => {
+    const known = batches.data?.batches ?? []
+    return [...new Set([...known, batch].filter(Boolean))].sort((a, b) => a.localeCompare(b))
+  }, [batches.data, batch])
+
+  const close = () => {
+    setEditing(false)
+    setCreating(false)
+    setDraft('')
+    setError('')
+  }
+
+  const assign = async (next: string) => {
+    if (!next || next === batch) return close()
+    setBusy(true)
+    setError('')
+    try {
+      await trainer.setBatch(candidateId, next)
+      onChanged()
+      close()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not move this candidate.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const createAndAssign = async () => {
+    const name = draft.trim()
+    if (!name) return
+    setBusy(true)
+    setError('')
+    try {
+      const { batch: created } = await trainer.createBatch(name)
+      await trainer.setBatch(candidateId, created)
+      await batches.refetch()
+      onChanged()
+      close()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not create that batch.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!editing) {
+    return (
+      <div className="flex items-baseline justify-between gap-4 py-1.5">
+        <span className="text-xs font-medium text-muted-foreground">Batch / cohort</span>
+        <span className="flex items-center gap-1.5">
+          <span className="font-mono tabular text-sm font-semibold text-navy-900">{batch}</span>
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="rounded p-0.5 text-navy-300 transition-colors hover:text-brand-700"
+            title="Change batch"
+            aria-label="Change batch"
+          >
+            <Pencil className="size-3" />
+          </button>
+        </span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="py-1.5">
+      <div className="mb-1.5 flex items-center justify-between gap-4">
+        <span className="text-xs font-medium text-muted-foreground">Batch / cohort</span>
+        <button
+          type="button"
+          onClick={close}
+          className="text-[11px] font-medium text-muted-foreground hover:text-navy-900"
+        >
+          Cancel
+        </button>
+      </div>
+
+      {creating ? (
+        <div className="flex items-center gap-1.5">
+          <Input
+            autoFocus
+            value={draft}
+            maxLength={60}
+            placeholder="New batch name"
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void createAndAssign()
+              if (e.key === 'Escape') close()
+            }}
+          />
+          <Button size="sm" disabled={busy || !draft.trim()} onClick={() => void createAndAssign()}>
+            {busy ? <Loader2 className="size-3.5 animate-spin" /> : 'Create'}
+          </Button>
+        </div>
+      ) : (
+        <Select
+          autoFocus
+          disabled={busy}
+          value={batch}
+          onChange={(e) => {
+            if (e.target.value === '__new') setCreating(true)
+            else void assign(e.target.value)
+          }}
+        >
+          {options.map((b) => (
+            <option key={b} value={b}>
+              {b}
+            </option>
+          ))}
+          {isAdmin && <option value="__new">+ New batch…</option>}
+        </Select>
+      )}
+
+      {error && <p className="mt-1 text-[11px] font-medium text-red-700">{error}</p>}
     </div>
   )
 }

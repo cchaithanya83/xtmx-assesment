@@ -441,6 +441,17 @@ export const trainer = {
 
   batches: (): Promise<{ batches: string[] }> => request('/trainer/batches'),
 
+  /** Registers a new batch name. Administrators only. */
+  createBatch: (name: string): Promise<{ ok: true; batch: string }> =>
+    request('/trainer/batches', { method: 'POST', body: { name } }),
+
+  /** Moves a candidate to an existing batch. */
+  setBatch: (id: string, batch: string): Promise<{ ok: true; batch: string }> =>
+    request(`/trainer/candidates/${encodeURIComponent(id)}/batch`, {
+      method: 'PATCH',
+      body: { batch },
+    }),
+
   /** Assessments currently in progress, on any machine. Poll this. */
   live: (): Promise<{ sessions: LiveSessionRow[] }> => request('/trainer/live'),
 

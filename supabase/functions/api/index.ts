@@ -37,6 +37,7 @@ import {
   listAllPassages,
   listPools,
   resolveLevelFields,
+  resolvePools,
   validateLevelFields,
   validatePassage,
   validatePool,
@@ -311,9 +312,78 @@ router.get('/trainer/live', async ({ ctx }) => {
   })
 })
 
+/**
+ * Every batch a candidate can be assigned to.
+ *
+ * The configured BATCHES pool is merged with the batches candidates are
+ * actually in. The pool alone would hide a batch that predates it; the
+ * candidate rows alone would hide a newly created batch until someone was put
+ * in it, which makes creating one look like it did nothing.
+ */
 router.get('/trainer/batches', async ({ ctx }) => {
   requireStaff(ctx)
-  return json({ batches: await listBatches(ctx.db) })
+  const [used, pools] = await Promise.all([listBatches(ctx.db), resolvePools(ctx.db)])
+  const batches = [...new Set([...(pools.BATCHES ?? []), ...used].map((b) => b.trim()))]
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b))
+  return json({ batches })
+})
+
+/**
+ * Registers a batch name so it can be assigned and appears in the filters.
+ *
+ * Admin-only, because the batch list is also what candidates choose from when
+ * they sign up — the same reasoning that keeps the rest of the content pools
+ * behind an administrator.
+ */
+router.post('/trainer/batches', async ({ ctx, body }) => {
+  requireAdmin(ctx)
+  const { name } = await body<{ name?: unknown }>()
+  const batch = typeof name === 'string' ? name.trim() : ''
+  if (!batch) throw badRequest('A batch name is required')
+  if (batch.length > 60) throw badRequest('Batch names are limited to 60 characters')
+
+  const pools = await resolvePools(ctx.db)
+  const existing = pools.BATCHES ?? []
+  // Case-insensitive, so "Test" and "test" cannot both exist and split a cohort.
+  if (existing.some((b) => b.toLowerCase() === batch.toLowerCase())) {
+    throw badRequest(`Batch "${batch}" already exists`)
+  }
+
+  const def = POOL_DEFAULTS.BATCHES
+  const { error } = await ctx.db.from('content_pools').upsert({
+    key: 'BATCHES',
+    label: def.label,
+    kind: def.kind,
+    items: [...existing, batch],
+    updated_at: new Date().toISOString(),
+    updated_by: ctx.profile.id,
+  })
+  if (error) throw error
+  return json({ ok: true, batch })
+})
+
+/** Moves a candidate to another batch. */
+router.patch('/trainer/candidates/:candidateId/batch', async ({ ctx, params, body }) => {
+  requireStaff(ctx)
+  const { batch } = await body<{ batch?: unknown }>()
+  const next = typeof batch === 'string' ? batch.trim() : ''
+  if (!next) throw badRequest('A batch name is required')
+  if (next.length > 60) throw badRequest('Batch names are limited to 60 characters')
+
+  // Assigning is staff-level, but inventing a batch name is not — otherwise the
+  // admin-only create route above could be bypassed by typing a new name here.
+  const pools = await resolvePools(ctx.db)
+  const known = [...(pools.BATCHES ?? []), ...(await listBatches(ctx.db))]
+  const match = known.find((b) => b.trim().toLowerCase() === next.toLowerCase())
+  if (!match) throw badRequest(`Unknown batch "${next}". Create it first.`)
+
+  const { error } = await ctx.db
+    .from('candidates')
+    .update({ batch: match })
+    .eq('id', params.candidateId)
+  if (error) throw error
+  return json({ ok: true, batch: match })
 })
 
 /** Full drill-down for one candidate. Staff only. */

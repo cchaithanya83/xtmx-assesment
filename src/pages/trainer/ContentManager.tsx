@@ -486,8 +486,38 @@ function PoolsTab({
   const [resetting, setResetting] = React.useState(false)
   const [busy, setBusy] = React.useState(false)
 
+  // Batches and locations are roster metadata, not spoken scenario data. They
+  // sat under copy about the audio generator, which made the batch list hard to
+  // find and implied editing it would change the assessment.
+  const ROSTER_KEYS = ['BATCHES', 'LOCATIONS']
+  const rosterPools = pools.filter((p) => ROSTER_KEYS.includes(p.key))
+  const audioPools = pools.filter((p) => !ROSTER_KEYS.includes(p.key))
+
+  const editors = (list: ContentPool[]) => (
+    <div className="grid gap-3 xl:grid-cols-2">
+      {list.map((pool) => (
+        <PoolEditor key={pool.key} pool={pool} onSaved={onChanged} flash={flash} onBusy={setBusy} />
+      ))}
+    </div>
+  )
+
   return (
     <>
+      {rosterPools.length > 0 && (
+        <div className="mb-5">
+          <h3 className="mb-1 px-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+            Roster options
+          </h3>
+          <p className="mb-2 max-w-3xl px-1 text-[12px] leading-relaxed text-muted-foreground">
+            Batches and locations candidates choose from when they sign up, and the batch filter
+            trainers see. Adding a batch here makes it available immediately — one name per line.
+            Renaming a batch does not move candidates already in the old one; change those from
+            the candidate's profile.
+          </p>
+          {editors(rosterPools)}
+        </div>
+      )}
+
       <Card className="mb-3 flex flex-wrap items-center justify-between gap-3 p-3">
         <p className="max-w-3xl px-1 text-[12px] leading-relaxed text-muted-foreground">
           These feed the Task 2 scenario generator. Every attempt draws fresh values, so bigger
@@ -500,17 +530,7 @@ function PoolsTab({
         </Button>
       </Card>
 
-      <div className="grid gap-3 xl:grid-cols-2">
-        {pools.map((pool) => (
-          <PoolEditor
-            key={pool.key}
-            pool={pool}
-            onSaved={onChanged}
-            flash={flash}
-            onBusy={setBusy}
-          />
-        ))}
-      </div>
+      {editors(audioPools)}
 
       <Dialog
         open={resetting}

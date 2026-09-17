@@ -409,6 +409,36 @@ export const trainer = {
     return request(`/trainer/roster?${q.toString()}`)
   },
 
+  /**
+   * The whole filtered cohort, in one response.
+   *
+   * The API caps `limit` at 200, so this pages underneath rather than asking
+   * for an unbounded list — a cohort past 200 would otherwise be silently cut
+   * off, which is exactly the kind of quiet truncation that made the Overview
+   * and Results pages disagree in the first place.
+   *
+   * `total` and `summary` come from the first page; both are cohort-wide
+   * already, so they do not need reassembling.
+   */
+  async rosterAll(params: {
+    search?: string
+    batch?: string
+    sort?: string
+    direction?: 'asc' | 'desc'
+  }): Promise<RosterResponse> {
+    const PAGE = 200
+    const first = await trainer.roster({ ...params, limit: PAGE, offset: 0 })
+    const rows = [...first.rows]
+
+    while (rows.length < first.total && rows.length > 0) {
+      const next = await trainer.roster({ ...params, limit: PAGE, offset: rows.length })
+      if (next.rows.length === 0) break
+      rows.push(...next.rows)
+    }
+
+    return { ...first, rows, limit: rows.length, offset: 0 }
+  },
+
   batches: (): Promise<{ batches: string[] }> => request('/trainer/batches'),
 
   /** Assessments currently in progress, on any machine. Poll this. */

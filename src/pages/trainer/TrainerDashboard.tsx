@@ -3,8 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import {
   AlertTriangle,
   ArrowUpDown,
-  ChevronLeft,
-  ChevronRight,
   Download,
   Loader2,
   Search,
@@ -36,14 +34,16 @@ import {
 import { Badge, Button, Card, Input, Select } from '@/components/ui'
 import { cn, downloadBlob, round, toCsv } from '@/lib/utils'
 
-const PAGE_SIZE = 25
-
 /**
  * Trainer / Admin overview.
  *
- * Every number on this page is computed in Postgres and paged over the API —
- * the browser never receives the full attempt history of the cohort. Searching,
- * filtering and sorting are query parameters, not array operations.
+ * Every number on this page is computed in Postgres — the browser receives one
+ * aggregated row per candidate, never the underlying attempt history. Searching,
+ * sorting and the batch filter are query parameters, not array operations.
+ *
+ * The roster is shown in full rather than paged: trainers scan and sort the
+ * whole cohort here, and a pager made that awkward while also making the table
+ * disagree with the cohort-wide KPI cards above it.
  */
 export default function TrainerDashboard() {
   const navigate = useNavigate()
@@ -54,23 +54,12 @@ export default function TrainerDashboard() {
   const [risk, setRisk] = React.useState('all')
   const [sort, setSort] = React.useState('score')
   const [direction, setDirection] = React.useState<'asc' | 'desc'>('desc')
-  const [page, setPage] = React.useState(0)
 
   const debouncedSearch = useDebounced(search)
 
-  React.useEffect(() => setPage(0), [debouncedSearch, batch, sort, direction])
-
   const roster = useApi(
-    () =>
-      trainer.roster({
-        search: debouncedSearch,
-        batch,
-        sort,
-        direction,
-        limit: PAGE_SIZE,
-        offset: page * PAGE_SIZE,
-      }),
-    [debouncedSearch, batch, sort, direction, page],
+    () => trainer.rosterAll({ search: debouncedSearch, batch, sort, direction }),
+    [debouncedSearch, batch, sort, direction],
   )
 
   const batches = useApi(() => trainer.batches(), [])
@@ -135,7 +124,7 @@ export default function TrainerDashboard() {
     }
   }
 
-  /** Exports the current page. The full cohort export lives on Results & Export. */
+  /** Exports exactly what the table is showing, filters and all. */
   const exportPage = () => {
     downloadBlob(
       new Blob(
@@ -166,12 +155,11 @@ export default function TrainerDashboard() {
         ],
         { type: 'text/csv;charset=utf-8' },
       ),
-      `xtmx-roster-page-${page + 1}.csv`,
+      `xtmx-roster-${batch === 'all' ? 'all' : batch}.csv`,
     )
   }
 
   const total = roster.data?.total ?? 0
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   return (
     <div className="mx-auto max-w-[1600px]">
@@ -182,7 +170,7 @@ export default function TrainerDashboard() {
         actions={
           <Button variant="outline" onClick={exportPage} disabled={!visible.length}>
             <Download className="size-4" />
-            Export page
+            Export CSV
           </Button>
         }
       />
@@ -229,7 +217,7 @@ export default function TrainerDashboard() {
       <div className="mb-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,340px)]">
         <Card className="p-5">
           <h2 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-            Score distribution (current page)
+            Score distribution
           </h2>
           <ScoreDistributionChart data={distribution} />
         </Card>
@@ -303,7 +291,7 @@ export default function TrainerDashboard() {
         </div>
         <p className="mt-2 px-1 text-[11px] text-muted-foreground">
           Search and batch filter the whole cohort on the server. Status and risk refine the
-          {' '}{PAGE_SIZE} rows on this page.
+          loaded rows.
         </p>
       </Card>
 
@@ -413,35 +401,13 @@ export default function TrainerDashboard() {
             </table>
           </div>
 
-          {/* ---- Pagination ---- */}
           <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-2.5">
             <p className="text-[11px] text-muted-foreground">
-              Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total}
+              {visible.length === total
+                ? `Showing all ${total} candidate${total === 1 ? '' : 's'}`
+                : `Showing ${visible.length} of ${total} — status and risk filters applied`}
               {roster.loading && ' · refreshing…'}
             </p>
-            <div className="flex items-center gap-1">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page === 0}
-                onClick={() => setPage((p) => Math.max(0, p - 1))}
-              >
-                <ChevronLeft className="size-3.5" />
-                Previous
-              </Button>
-              <span className="px-2 text-[11px] tabular text-muted-foreground">
-                {page + 1} / {pageCount}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page + 1 >= pageCount}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                Next
-                <ChevronRight className="size-3.5" />
-              </Button>
-            </div>
           </div>
         </Card>
       )}
